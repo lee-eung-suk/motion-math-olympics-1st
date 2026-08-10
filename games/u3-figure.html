@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>피겨 여왕의 모양 연기 · 종목 3</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div class="game-stage">
+  <video id="video" playsinline muted style="display:none"></video>
+  <canvas id="gameCanvas"></canvas>
+
+  <div class="hud">
+    <div class="rec" id="recIndicator" style="display:none"><span class="dot"></span>REC</div>
+    <button class="home-btn" id="homeBtn">🏠</button>
+  </div>
+
+  <div class="overlay-panel" id="loadingPanel">
+    <h2>👑 피겨 여왕의 모양 연기</h2>
+    <p id="loadingText">준비 중…</p>
+  </div>
+
+  <div class="overlay-panel" id="raisePanel" style="display:none">
+    <div class="raise-icon" id="raiseIcon">🙋</div>
+    <h2 id="raiseText">손을 들어 주세요!</h2>
+    <div class="hold-bar"><div class="hold-fill" id="holdFill"></div></div>
+  </div>
+
+  <div class="overlay-panel ready-flash" id="readyPanel" style="display:none">
+    <h2>✋ 좋아요! 준비됐어요</h2>
+  </div>
+
+  <div class="overlay-panel" id="countdownPanel" style="display:none">
+    <div class="countdown-num" id="countNum">3</div>
+  </div>
+
+  <div class="overlay-panel" id="resultPanel" style="display:none">
+    <h2 id="resultTitle">결과</h2>
+    <div class="medal" id="resultMedal">🥉</div>
+    <div class="result-stats">
+      <div class="stat-box"><div class="num" id="statCount">0개</div><div class="label">기록</div></div>
+      <div class="stat-box"><div class="num" id="statBest">0개</div><div class="label">최고 기록</div></div>
+      <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
+    </div>
+    <video class="preview" id="previewVideo" controls playsinline style="display:none"></video>
+    <div class="action-row">
+      <button class="ghost-btn" id="savePhotoBtn">📸 사진</button>
+      <button class="ghost-btn" id="saveVideoBtn" style="display:none">🎬 3초 영상</button>
+      <button class="big-btn" id="retryBtn">🔁 한 번 더</button>
+      <button class="ghost-btn" id="homeBtn2">🏠 종목 선택</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import {
+  HighScore, requestWakeLock, SoundKit, FileAudioLoop,
+  HandTracker, ClipRecorder, snapshotCanvas, downloadBlob,
+  drawMirroredVideo, fitCanvasToScreen, isHandRaised,
+  AutoDifficulty, drawLevelBadge, medalFor,
+  scheduleAutoRecording, ComboShot, drawPhotoOverlay,
+  ScreenShake, spawnParticles, updateParticles, drawParticles,
+  spawnPopup, updatePopups, drawPopups,
+  spawnBigPopup, updateBigPopups, drawBigPopups,
+  InputMode, PointerInput, StartGate, getCursors, drawFallbackBackground,
+  startCamera, formatFileTimestamp, fluidPx, showSoundHint,
+  drawVignette, drawHudBanner, popScale, spawnConfetti, updateConfetti, drawConfetti,
+} from "../js/engine.js?v=7";
+requestWakeLock();
+
+const UNIT = "u3";
+const TITLE = "피겨 여왕의 모양 연기";
+const RECORD_SUFFIX = "개 수집";
+const MEDALS = { bronze: 10, silver: 18, gold: 26 };
+const mode = InputMode.get();
+const HIT_COOLDOWN = 240;   // 손을 한 자리에 두어도 연속으로 쓸어담기지 않도록
+const SPIN_EVERY = 5;       // 이만큼 모으면 피겨 스핀 연출
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("gameCanvas");
+let dims = fitCanvasToScreen(canvas);
+window.addEventListener("resize", () => { dims = fitCanvasToScreen(canvas); });
+
+const sound = new SoundKit();
+const bgm = new FileAudioLoop("../assets/sounds/subbgm.mp3", 0.32);
+const isMuted = () => localStorage.getItem("smo_muted") === "1";
+
+document.getElementById("homeBtn").addEventListener("click", () => { bgm.stop(); location.href = "../index.html"; });
+document.getElementById("homeBtn2").addEventListener("click", () => { bgm.stop(); location.href = "../index.html"; });
+
+const SHAPES = [
+  { key: "circle", label: "동그라미", color: "#4cc9f0" },
+  { key: "triangle", label: "세모", color: "#ffd166" },
+  { key: "square", label: "네모", color: "#ef476f" },
+];
+
+function levelConfig(level) {
+  if (level === 1) return { tiles: 5, speed: 26, targetEvery: 6000 };
+  if (level === 2) return { tiles: 6, speed: 38, targetEvery: 5000 };
+  return { tiles: 7, speed: 50, targetEvery: 4000 };
+}
+
+const handTracker = new HandTracker();
+let pointerInput = null;
+
+async function init() {
+  if (!isMuted()) bgm.play(showSoundHint);
+  if (mode === "motion") {
+    try {
+      await startCamera(video, { width: 640, height: 480 });
+      if (!isMuted()) bgm.play(showSoundHint);
+    } catch (e) {
+      document.getElementById("loadingText").textContent = "⚠️ 카메라를 찾을 수 없어요. 카메라 권한을 확인해주세요.";
+      return;
+    }
+    document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
+    await handTracker.init(2);
+  } else {
+    pointerInput = new PointerInput(canvas);
+  }
+  document.getElementById("loadingPanel").style.display = "none";
+  document.getElementById("raiseIcon").textContent = mode === "motion" ? "🙋" : "👆";
+  document.getElementById("raiseText").textContent = mode === "motion" ? "손을 들어 주세요!" : "화면을 터치(클릭)하면 시작!";
+  document.getElementById("raisePanel").style.display = "flex";
+  state = "raise";
+  requestAnimationFrame(loop);
+}
+
+let state = "loading";
+const holdFill = document.getElementById("holdFill");
+const startGate = new StartGate(mode, holdFill);
+
+let autoDiff, count, combo, maxCombo, playEndAt, cfg;
+let targetShape, tiles = [], lastHitAt = 0, targetSwitchAt = 0;
+let spinUntil = 0, missFlashUntil = 0;
+let particles = [], popups = [], bigPopups = [], confetti = [];
+const shake = new ScreenShake();
+let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
+let recIndicator = document.getElementById("recIndicator");
+
+function tileRadius() { return fluidPx(dims, 46, { min: 34, max: 66 }); }
+
+// 얼음 조각 하나 — 화면 안을 천천히 떠다니며 빙글빙글 돈다
+function makeTile(forceKey) {
+  const { w, h } = dims;
+  const r = tileRadius();
+  const key = forceKey || SHAPES[Math.floor(Math.random() * SHAPES.length)].key;
+  const a = Math.random() * Math.PI * 2;
+  return {
+    key,
+    x: r * 2 + Math.random() * (w - r * 4),
+    y: h * 0.24 + Math.random() * (h * 0.56),
+    vx: Math.cos(a) * cfg.speed, vy: Math.sin(a) * cfg.speed,
+    rot: Math.random() * Math.PI * 2,
+    rotSpeed: (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 0.6),
+    born: performance.now(),
+    dead: false,
+  };
+}
+
+function pickTargetShape() {
+  targetShape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+  targetSwitchAt = performance.now() + cfg.targetEvery;
+  // 목표 도형이 화면에 최소 2개는 있도록 보장
+  const have = tiles.filter((t) => !t.dead && t.key === targetShape.key).length;
+  for (let i = 0; have + i < 2 && i < tiles.length; i++) tiles[i] = makeTile(targetShape.key);
+}
+
+function resetBoard() {
+  cfg = levelConfig(autoDiff.level);
+  tiles = Array.from({ length: cfg.tiles }, () => makeTile());
+  pickTargetShape();
+}
+
+function startCountdown() {
+  state = "countdown";
+  document.getElementById("countdownPanel").style.display = "flex";
+  const numEl = document.getElementById("countNum");
+  let n = 3;
+  numEl.textContent = n;
+  if (!isMuted()) sound.countBeep();
+  const iv = setInterval(() => {
+    n--;
+    if (n <= 0) {
+      clearInterval(iv);
+      document.getElementById("countdownPanel").style.display = "none";
+      if (!isMuted()) sound.go();
+      beginPlay();
+    } else {
+      numEl.textContent = n;
+      if (!isMuted()) sound.countBeep();
+    }
+  }, 700);
+}
+
+function beginPlay() {
+  state = "playing";
+  dims = fitCanvasToScreen(canvas);
+  const prev = HighScore.get(UNIT);
+  autoDiff = new AutoDifficulty(AutoDifficulty.startLevelFromHighScore(prev));
+  count = 0; combo = 0; maxCombo = 0;
+  particles = []; popups = []; bigPopups = [];
+  spinUntil = 0; missFlashUntil = 0; lastHitAt = 0;
+  playEndAt = performance.now() + 60000;
+  resetBoard();
+
+  recorder = new ClipRecorder(canvas, sound, 24);
+  recorder.prepare();
+  comboShot = new ComboShot(canvas);
+  fallbackShot = new ComboShot(canvas);
+  autoRec = scheduleAutoRecording(recorder, {
+    onStartVisual: () => {
+      recIndicator.style.display = "flex";
+      setTimeout(() => { if (!comboShot.captured) fallbackShot.capture(canvas); }, 1500);
+    },
+    onEndVisual: () => { recIndicator.style.display = "none"; },
+    onDone: (blob) => { recordedBlob = blob; },
+    fallbackMs: 8000,
+  });
+}
+
+function collectTile(tile, idx) {
+  tile.dead = true;             // 즉시 죽여서 같은 조각이 여러 번 채점되지 않게 한다
+  lastHitAt = performance.now();
+  count++; combo++;
+  if (combo > maxCombo) { maxCombo = combo; comboShot.capture(canvas); }
+  autoDiff.reportCorrect();
+  autoRec.trigger();
+  spawnParticles(particles, tile.x, tile.y, { count: 22, colors: ["#bfe9ff", "#ffd166", "#fff"], speed: 280, life: 500 });
+    spawnConfetti(confetti, tile.x, tile.y, 22);
+  spawnPopup(popups, tile.x, tile.y - 26, "반짝!", "#bfe9ff");
+  shake.trigger(3, 90);
+  if (!isMuted()) { sound.correct(); if (combo === 3) sound.comboUp(); }
+  if (count > 0 && count % SPIN_EVERY === 0) {
+    spinUntil = performance.now() + 900;
+    const score = (5.6 + Math.random() * 0.4 + Math.min(combo, 5) * 0.1).toFixed(1);
+    spawnBigPopup(bigPopups, dims.w / 2, dims.h * 0.3, `🏅 ${score}점!`, "#ffd166");
+    if (!isMuted()) sound.fever();
+  }
+  setTimeout(() => { if (state === "playing" && tiles[idx]) tiles[idx] = makeTile(); }, 220);
+}
+
+function missTile(tile) {
+  lastHitAt = performance.now();
+  combo = 0;
+  autoDiff.reportWrong();
+  missFlashUntil = performance.now() + 320;
+  spawnPopup(popups, tile.x, tile.y - 26, "앗! 다른 모양", "#ef476f");
+  shake.trigger(4, 110);
+  if (!isMuted()) sound.wrong();
+}
+
+function endGame() {
+  state = "result";
+  const { medal, label } = medalFor(count, MEDALS);
+  const prev = HighScore.get(UNIT);
+  const best = Math.max(count, prev ? prev.count : 0);
+  if (!prev || count >= prev.count) {
+    HighScore.set(UNIT, { count, bestLevel: autoDiff.level, label: `${medal} ${count}${RECORD_SUFFIX}`, at: Date.now() });
+  }
+  document.getElementById("resultMedal").textContent = medal;
+  document.getElementById("resultTitle").textContent = `${label}! 수고했어요`;
+  document.getElementById("statCount").textContent = count + "개";
+  document.getElementById("statBest").textContent = best + "개";
+  document.getElementById("statCombo").textContent = "🔥" + maxCombo;
+
+  const shot = comboShot.captured ? comboShot : fallbackShot;
+  const previewVideo = document.getElementById("previewVideo");
+  const saveVideoBtn = document.getElementById("saveVideoBtn");
+  if (recordedBlob) {
+    previewVideo.src = URL.createObjectURL(recordedBlob);
+    previewVideo.style.display = "block";
+    saveVideoBtn.style.display = "inline-block";
+  }
+  document.getElementById("savePhotoBtn").onclick = async () => {
+    const blob = await shot.toBlob((ctx, w, h) => drawPhotoOverlay(ctx, w, h, { title: TITLE, record: count + RECORD_SUFFIX, medal }));
+    downloadBlob(blob, `수학올림픽_피겨여왕_${formatFileTimestamp()}.png`);
+  };
+  document.getElementById("saveVideoBtn").onclick = () => {
+    if (recordedBlob) downloadBlob(recordedBlob, `수학올림픽_피겨여왕_${formatFileTimestamp()}.${recorder.extension}`);
+  };
+  document.getElementById("resultPanel").style.display = "flex";
+  if (!isMuted()) sound.success();
+}
+
+document.getElementById("retryBtn").addEventListener("click", () => {
+  document.getElementById("resultPanel").style.display = "none";
+  document.getElementById("raisePanel").style.display = "flex";
+  startGate.since = 0; startGate.ready = false; holdFill.style.width = "0%";
+  state = "raise";
+});
+
+document.getElementById("raisePanel").addEventListener("click", () => {
+  if (state === "raise" && mode !== "motion") goReady();
+});
+
+function drawShape(ctx, key, x, y, r, rot, color) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  ctx.beginPath();
+  if (key === "circle") {
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+  } else if (key === "triangle") {
+    for (let i = 0; i < 3; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI * 2) / 3;
+      const px = Math.cos(a) * r, py = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  } else {
+    const s = r * 0.82;
+    ctx.rect(-s, -s, s * 2, s * 2);
+  }
+  ctx.fillStyle = color + "cc";
+  ctx.fill();
+  ctx.lineWidth = 5; ctx.strokeStyle = "#ffffff"; ctx.stroke();
+  ctx.restore();
+}
+
+function loop(tsMs) {
+  requestAnimationFrame(loop);
+  if (mode === "motion" && video.readyState < 2) return;
+  const { ctx, w, h } = dims;
+  ctx.save();
+  shake.apply(ctx);
+  if (mode === "motion") drawMirroredVideo(ctx, video, w, h);
+  else drawFallbackBackground(ctx, w, h);
+  if (state === "playing") {
+    ctx.save();
+    const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
+    g.addColorStop(0, "rgba(255,255,255,0.30)");
+    g.addColorStop(1, "rgba(150,205,240,0.30)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.ellipse(w / 2, h / 2, w * 0.46, h * 0.44, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  let result = null, cursors = [];
+  if (mode === "motion") {
+    result = handTracker.detect(video, tsMs);
+    if (state === "raise") {
+      let raised = false;
+      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised = true;
+      if (startGate.update(tsMs, raised)) goReady();
+    }
+  }
+  cursors = getCursors(mode, result, w, h, video, pointerInput);
+
+  if (state === "playing") stepGame(tsMs, cursors);
+
+  for (const c of cursors) {
+    ctx.save();
+    ctx.font = `${fluidPx(dims, 34)}px sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("⛸️", c.x, c.y);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function goReady() {
+  state = "ready";
+  document.getElementById("raisePanel").style.display = "none";
+  document.getElementById("readyPanel").style.display = "flex";
+  if (!isMuted()) sound.click();
+  setTimeout(() => {
+    document.getElementById("readyPanel").style.display = "none";
+    startCountdown();
+  }, 500);
+}
+
+function stepGame(tsMs, cursors) {
+  const { ctx, w, h } = dims;
+  const now = performance.now();
+  const remain = Math.max(0, playEndAt - now);
+  if (remain <= 0) { endGame(); return; }
+
+  if (now > targetSwitchAt) pickTargetShape();
+
+  const r = tileRadius();
+  const dt = 1 / 60;
+  // 조각들이 빙판 위를 떠다니다가 벽에 닿으면 튕긴다
+  for (const t of tiles) {
+    if (t.dead) continue;
+    t.x += t.vx * dt; t.y += t.vy * dt;
+    t.rot += t.rotSpeed * dt;
+    if (t.x < r) { t.x = r; t.vx = Math.abs(t.vx); }
+    if (t.x > w - r) { t.x = w - r; t.vx = -Math.abs(t.vx); }
+    if (t.y < h * 0.2 + r) { t.y = h * 0.2 + r; t.vy = Math.abs(t.vy); }
+    if (t.y > h - r) { t.y = h - r; t.vy = -Math.abs(t.vy); }
+  }
+
+  // 손끝(스케이트 날)이 조각에 닿으면 수집 — 쿨다운으로 한 자리에서 쓸어담기는 걸 막는다
+  if (now - lastHitAt > HIT_COOLDOWN) {
+    outer:
+    for (const c of cursors) {
+      for (let i = 0; i < tiles.length; i++) {
+        const t = tiles[i];
+        if (t.dead) continue;
+        if (Math.hypot(c.x - t.x, c.y - t.y) < r) {
+          if (t.key === targetShape.key) collectTile(t, i);
+          else missTile(t);
+          break outer;
+        }
+      }
+    }
+  }
+
+  for (const t of tiles) {
+    if (t.dead) continue;
+    const shape = SHAPES.find((s) => s.key === t.key);
+    const isTarget = t.key === targetShape.key;
+    if (isTarget) {
+      const pulse = 0.75 + Math.sin(now / 220) * 0.25;
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath(); ctx.arc(t.x, t.y, r * 1.45, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffd166"; ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.arc(t.x, t.y, r * (1.22 + pulse * 0.08), 0, Math.PI * 2);
+      ctx.lineWidth = 6; ctx.strokeStyle = "#ff9f1c"; ctx.stroke();
+      ctx.restore();
+    }
+    drawShape(ctx, t.key, t.x, t.y, r, t.rot, shape.color);
+  }
+
+  // 성공할 때마다 스케이터가 스핀하는 연출
+  if (now < spinUntil) {
+    const p = 1 - (spinUntil - now) / 900;
+    ctx.save();
+    ctx.translate(w / 2, h * 0.5);
+    ctx.rotate(p * Math.PI * 4);
+    ctx.font = `${fluidPx(dims, 86)}px sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("⛸️", 0, 0);
+    ctx.restore();
+  }
+
+  if (now < missFlashUntil) {
+    ctx.save();
+    ctx.globalAlpha = 0.3 * (missFlashUntil - now) / 320;
+    ctx.fillStyle = "#ef476f";
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+
+  particles = updateParticles(particles, dt);
+  drawParticles(ctx, particles);
+  popups = updatePopups(popups, dt);
+  drawPopups(ctx, popups);
+  bigPopups = updateBigPopups(bigPopups, dt);
+  drawBigPopups(ctx, bigPopups);
+
+  // 목표 안내: 이름 + 실제 도형을 크게 같이 보여줘 1학년이 글을 못 읽어도 바로 이해하게 한다
+  drawVignette(ctx, w, h, 0.18);
+  const bannerBottom = drawHudBanner(ctx, dims, [
+    { text: `✨ 이 모양만 모으세요!`, size: 24, weight: "900", color: "#e8590c" },
+    { text: `🔥${combo}   기록 ${count}개   ⏱ ${Math.ceil(remain / 1000)}초`, size: 16, color: "#1d2b4d" },
+  ]);
+  // 목표 도형 칩: 떠다니는 조각과 똑같이 보이면 헷갈리므로 받침판 + "목표" 라벨로 구분해 준다
+  const iconR = fluidPx(dims, 24, { min: 18, max: 32 });
+  const chipY = bannerBottom + iconR * 1.5;
+  const labelSize = fluidPx(dims, 15, { min: 12, max: 20 });
+  ctx.save();
+  ctx.font = `900 ${labelSize}px sans-serif`;
+  const labelW = ctx.measureText("목표").width;
+  const chipW = labelW + iconR * 2 + fluidPx(dims, 34, { min: 24, max: 46 });
+  const chipH = iconR * 2 + fluidPx(dims, 16, { min: 12, max: 22 });
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ctx.beginPath(); ctx.roundRect(w / 2 - chipW / 2, chipY - chipH / 2, chipW, chipH, chipH / 2);
+  ctx.fill();
+  ctx.strokeStyle = "#ffd166aa"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = "#1d2b4d"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText("목표", w / 2 - chipW / 2 + fluidPx(dims, 14, { min: 10, max: 18 }), chipY);
+  ctx.restore();
+  drawShape(ctx, targetShape.key, w / 2 + chipW / 2 - iconR - fluidPx(dims, 12, { min: 8, max: 16 }), chipY, iconR, 0, targetShape.color);
+
+  ctx.save();
+  ctx.textAlign = "center";
+  const hintFont = fluidPx(dims, 14);
+  ctx.font = `${hintFont}px sans-serif`;
+  ctx.fillStyle = "#1d2b4d"; ctx.shadowColor = "rgba(255,255,255,0.9)"; ctx.shadowBlur = 6;
+  ctx.fillText(mode === "motion" ? "👋 손을 움직여 반짝이는 모양을 만져요!" : "👆 반짝이는 모양을 터치해요!", w / 2, h - hintFont * 1.2);
+  ctx.restore();
+
+  drawLevelBadge(ctx, w, h, autoDiff.level);
+}
+
+init();
+</script>
+</body>
+</html>

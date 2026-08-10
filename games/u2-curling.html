@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>스톤을 굴려 10만들기 컬링 · 종목 2</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div class="game-stage">
+  <video id="video" playsinline muted style="display:none"></video>
+  <canvas id="gameCanvas"></canvas>
+
+  <div class="hud">
+    <div class="rec" id="recIndicator" style="display:none"><span class="dot"></span>REC</div>
+    <button class="home-btn" id="homeBtn">🏠</button>
+  </div>
+
+  <div class="overlay-panel" id="loadingPanel">
+    <h2>🥌 스톤을 굴려 10만들기 컬링</h2>
+    <p id="loadingText">준비 중…</p>
+  </div>
+
+  <div class="overlay-panel" id="raisePanel" style="display:none">
+    <div class="raise-icon" id="raiseIcon">🙋</div>
+    <h2 id="raiseText">손을 들어 주세요!</h2>
+    <div class="hold-bar"><div class="hold-fill" id="holdFill"></div></div>
+  </div>
+
+  <div class="overlay-panel ready-flash" id="readyPanel" style="display:none">
+    <h2>✋ 좋아요! 준비됐어요</h2>
+  </div>
+
+  <div class="overlay-panel" id="countdownPanel" style="display:none">
+    <div class="countdown-num" id="countNum">3</div>
+  </div>
+
+  <div class="overlay-panel" id="resultPanel" style="display:none">
+    <h2 id="resultTitle">결과</h2>
+    <div class="medal" id="resultMedal">🥉</div>
+    <div class="result-stats">
+      <div class="stat-box"><div class="num" id="statCount">0개</div><div class="label">기록</div></div>
+      <div class="stat-box"><div class="num" id="statBest">0개</div><div class="label">최고 기록</div></div>
+      <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
+    </div>
+    <video class="preview" id="previewVideo" controls playsinline style="display:none"></video>
+    <div class="action-row">
+      <button class="ghost-btn" id="savePhotoBtn">📸 사진</button>
+      <button class="ghost-btn" id="saveVideoBtn" style="display:none">🎬 3초 영상</button>
+      <button class="big-btn" id="retryBtn">🔁 한 번 더</button>
+      <button class="ghost-btn" id="homeBtn2">🏠 종목 선택</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import {
+  HighScore, requestWakeLock, SoundKit, FileAudioLoop,
+  HandTracker, ClipRecorder, snapshotCanvas, downloadBlob,
+  drawMirroredVideo, fitCanvasToScreen, isHandRaised, toMirroredCanvas, loadImage,
+  AutoDifficulty, drawLevelBadge, medalFor,
+  scheduleAutoRecording, ComboShot, drawPhotoOverlay,
+  ScreenShake, spawnParticles, updateParticles, drawParticles,
+  spawnPopup, updatePopups, drawPopups,
+  spawnBigPopup, updateBigPopups, drawBigPopups,
+  InputMode, PointerInput, StartGate, drawFallbackBackground,
+  startCamera, formatFileTimestamp, fluidPx, showSoundHint,
+  drawVignette, drawHudBanner, popScale, spawnConfetti, updateConfetti, drawConfetti,
+} from "../js/engine.js?v=7";
+requestWakeLock();
+
+const UNIT = "u2";
+const TITLE = "스톤을 굴려 10만들기 컬링";
+const RECORD_SUFFIX = "번 성공";
+const MEDALS = { bronze: 4, silver: 7, gold: 10 };
+const mode = InputMode.get();
+const STONES_PER_ROUND = 3;
+const RING_VALUES = [1, 2, 3, 4, 5]; // 바깥→안쪽
+const PINCH_THRESHOLD = 0.06; // 정규화 좌표 기준 엄지-검지 거리
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("gameCanvas");
+let dims = fitCanvasToScreen(canvas);
+window.addEventListener("resize", () => { dims = fitCanvasToScreen(canvas); });
+
+const sound = new SoundKit();
+const bgm = new FileAudioLoop("../assets/sounds/subbgm.mp3", 0.32);
+const isMuted = () => localStorage.getItem("smo_muted") === "1";
+
+document.getElementById("homeBtn").addEventListener("click", () => { bgm.stop(); location.href = "../index.html"; });
+document.getElementById("homeBtn2").addEventListener("click", () => { bgm.stop(); location.href = "../index.html"; });
+
+function houseGeom() {
+  const { w, h } = dims;
+  // cy/R을 너무 위로·크게 잡으면 상단 HUD 문구·"목표 10" 표지판과 겹치며 과녁 윗부분이
+  // 화면 밖으로 잘려 안 보이는 문제가 있었다 — 화면비에 상관없이 상단 문구 아래에 온전히 들어가도록 조정.
+  const cx = w / 2, cy = h * 0.34;
+  const R = Math.min(w, h) * 0.16;
+  return { cx, cy, R };
+}
+// 스톤 시작 위치(홈)를 화면 아래쪽 끝에 두면 당길 수 있는 공간이 거의 없어 아무리 당겨도
+// 멀리 못 나가는 문제가 있었다 — 화면 중간쯤으로 올려 아래로 당길 공간을 넉넉히 확보한다.
+function stoneHomePos() {
+  const { w, h } = dims;
+  return { x: w / 2, y: h * 0.62 };
+}
+function houseScaleForLevel(level) {
+  if (level === 1) return 1.1;
+  if (level === 2) return 0.95;
+  return 0.8;
+}
+
+const handTracker = new HandTracker();
+let pointerInput = null;
+let stoneImg = null;
+loadImage("../assets/stone.png").then((img) => { stoneImg = img; }).catch(() => {});
+
+async function init() {
+  if (!isMuted()) bgm.play(showSoundHint);
+  if (mode === "motion") {
+    try {
+      await startCamera(video, { width: 640, height: 480 });
+      if (!isMuted()) bgm.play(showSoundHint);
+    } catch (e) {
+      document.getElementById("loadingText").textContent = "⚠️ 카메라를 찾을 수 없어요. 카메라 권한을 확인해주세요.";
+      return;
+    }
+    document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
+    await handTracker.init(1);
+  } else {
+    pointerInput = new PointerInput(canvas);
+  }
+  document.getElementById("loadingPanel").style.display = "none";
+  document.getElementById("raiseIcon").textContent = mode === "motion" ? "🙋" : "👆";
+  document.getElementById("raiseText").textContent = mode === "motion" ? "손을 들어 주세요!" : "화면을 터치(클릭)하면 시작!";
+  document.getElementById("raisePanel").style.display = "flex";
+  state = "raise";
+  requestAnimationFrame(loop);
+}
+
+let state = "loading";
+const holdFill = document.getElementById("holdFill");
+const startGate = new StartGate(mode, holdFill);
+
+let autoDiff, count, combo, maxCombo, playEndAt, introUntil = 0;
+let thrown, roundTotal, stone, roundOver;
+let charging = false, wasPressed = false, chargeStartAt = 0;
+let particles = [], popups = [], bigPopups = [], confetti = [];
+const shake = new ScreenShake();
+let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
+let recIndicator = document.getElementById("recIndicator");
+
+function newStone() {
+  const home = stoneHomePos();
+  stone = { x: home.x, y: home.y, vx: 0, vy: 0, moving: false, rot: 0, settled: false };
+  charging = true;
+  chargeStartAt = performance.now();
+}
+function newRound() {
+  thrown = 0; roundTotal = 0; roundOver = false;
+  newStone();
+}
+
+function startCountdown() {
+  state = "countdown";
+  document.getElementById("countdownPanel").style.display = "flex";
+  const numEl = document.getElementById("countNum");
+  let n = 3;
+  numEl.textContent = n;
+  if (!isMuted()) sound.countBeep();
+  const iv = setInterval(() => {
+    n--;
+    if (n <= 0) {
+      clearInterval(iv);
+      document.getElementById("countdownPanel").style.display = "none";
+      if (!isMuted()) sound.go();
+      beginPlay();
+    } else {
+      numEl.textContent = n;
+      if (!isMuted()) sound.countBeep();
+    }
+  }, 700);
+}
+
+function beginPlay() {
+  state = "playing";
+  const prev = HighScore.get(UNIT);
+  autoDiff = new AutoDifficulty(AutoDifficulty.startLevelFromHighScore(prev));
+  count = 0; combo = 0; maxCombo = 0;
+  particles = []; popups = []; bigPopups = [];
+  const INTRO_MS = 2600;
+  introUntil = performance.now() + INTRO_MS;
+  playEndAt = performance.now() + 60000 + INTRO_MS;
+  newRound();
+
+  recorder = new ClipRecorder(canvas, sound, 24);
+  recorder.prepare();
+  comboShot = new ComboShot(canvas);
+  fallbackShot = new ComboShot(canvas);
+  autoRec = scheduleAutoRecording(recorder, {
+    onStartVisual: () => {
+      recIndicator.style.display = "flex";
+      setTimeout(() => { if (!comboShot.captured) fallbackShot.capture(canvas); }, 1500);
+    },
+    onEndVisual: () => { recIndicator.style.display = "none"; },
+    onDone: (blob) => { recordedBlob = blob; },
+    fallbackMs: 8000,
+  });
+}
+
+function roundSuccess() {
+  roundOver = true;
+  count++; combo++;
+  if (combo > maxCombo) { maxCombo = combo; comboShot.capture(canvas); }
+  autoDiff.reportCorrect();
+  autoRec.trigger();
+  const { cx, cy } = houseGeom();
+  spawnParticles(particles, cx, cy, { count: 30, colors: ["#ffd166", "#f59e0b", "#fff"], speed: 300, life: 600 });
+    spawnConfetti(confetti, cx, cy, 34);
+  spawnBigPopup(bigPopups, dims.w / 2, dims.h * 0.5, "정확히 10!", "#ffd166");
+  shake.trigger(6, 160);
+  if (!isMuted()) { sound.success(); if (combo === 3) sound.comboUp(); if (combo >= 5 && combo % 5 === 0) sound.fever(); }
+  setTimeout(() => { if (state === "playing") newRound(); }, 900);
+}
+function roundFail(msg) {
+  roundOver = true;
+  combo = 0;
+  autoDiff.reportWrong();
+  spawnPopup(popups, dims.w / 2, dims.h * 0.5, msg, "#ef476f");
+  if (!isMuted()) sound.wrong();
+  setTimeout(() => { if (state === "playing") newRound(); }, 900);
+}
+
+function ringValueAt(dist, R) {
+  for (let i = 0; i < RING_VALUES.length; i++) {
+    const outerFrac = 1 - i * 0.2;
+    if (dist <= R * outerFrac) return RING_VALUES[i];
+  }
+  return 0;
+}
+
+function launchStone(vx, vy) {
+  stone.vx = vx; stone.vy = vy; stone.moving = true;
+  if (!isMuted()) sound.swoosh();
+}
+
+function settleStone() {
+  stone.moving = false; stone.settled = true;
+  const { cx, cy, R } = houseGeom();
+  const scale = houseScaleForLevel(autoDiff.level);
+  const dist = Math.hypot(stone.x - cx, stone.y - cy);
+  const val = ringValueAt(dist, R * scale);
+  thrown++;
+  shake.trigger(4, 100);
+  if (!isMuted()) sound.tone(90, 0.16, "sawtooth", 0.16);
+  if (val > 0) {
+    roundTotal += val;
+    spawnBigPopup(bigPopups, stone.x, stone.y - 40, `+${val}!`, "#ffd166");
+    spawnParticles(particles, stone.x, stone.y, { count: 14, colors: ["#ffd166", "#fff"], speed: 200, life: 400 });
+    if (!isMuted()) sound.pop();
+  } else {
+    spawnPopup(popups, stone.x, stone.y - 20, "빗나감", "#9aa0c0");
+  }
+  if (roundTotal > 10) { roundFail("10을 넘었어요! 다시!"); return; }
+  if (roundTotal === 10) { roundSuccess(); return; }
+  if (thrown >= STONES_PER_ROUND) { roundFail(`아깝다! ${roundTotal}에서 멈췄어요`); return; }
+  setTimeout(() => { if (state === "playing" && !roundOver) newStone(); }, 500);
+}
+
+function endGame() {
+  state = "result";
+  const { medal, label } = medalFor(count, MEDALS);
+  const prev = HighScore.get(UNIT);
+  const best = Math.max(count, prev ? prev.count : 0);
+  if (!prev || count >= prev.count) {
+    HighScore.set(UNIT, { count, bestLevel: autoDiff.level, label: `${medal} ${count}${RECORD_SUFFIX}`, at: Date.now() });
+  }
+  document.getElementById("resultMedal").textContent = medal;
+  document.getElementById("resultTitle").textContent = `${label}! 수고했어요`;
+  document.getElementById("statCount").textContent = count + "번";
+  document.getElementById("statBest").textContent = best + "번";
+  document.getElementById("statCombo").textContent = "🔥" + maxCombo;
+
+  const shot = comboShot.captured ? comboShot : fallbackShot;
+  const previewVideo = document.getElementById("previewVideo");
+  const saveVideoBtn = document.getElementById("saveVideoBtn");
+  if (recordedBlob) {
+    previewVideo.src = URL.createObjectURL(recordedBlob);
+    previewVideo.style.display = "block";
+    saveVideoBtn.style.display = "inline-block";
+  }
+  document.getElementById("savePhotoBtn").onclick = async () => {
+    const blob = await shot.toBlob((ctx, w, h) => drawPhotoOverlay(ctx, w, h, { title: TITLE, record: count + RECORD_SUFFIX, medal }));
+    downloadBlob(blob, `수학올림픽_컬링_${formatFileTimestamp()}.png`);
+  };
+  document.getElementById("saveVideoBtn").onclick = () => {
+    if (recordedBlob) downloadBlob(recordedBlob, `수학올림픽_컬링_${formatFileTimestamp()}.${recorder.extension}`);
+  };
+  document.getElementById("resultPanel").style.display = "flex";
+  if (!isMuted()) sound.success();
+}
+
+document.getElementById("retryBtn").addEventListener("click", () => {
+  document.getElementById("resultPanel").style.display = "none";
+  document.getElementById("raisePanel").style.display = "flex";
+  startGate.since = 0; startGate.ready = false; holdFill.style.width = "0%";
+  state = "raise";
+});
+
+document.getElementById("raisePanel").addEventListener("click", () => {
+  if (state === "raise" && mode !== "motion") goReady();
+});
+
+// 모션: 엄지-검지 핀치 거리로 "잡음" 판정, 중간점을 커서로 사용
+// 터치/마우스: 누르고 있는 동안 = 잡음
+function gripState(handResult) {
+  if (mode === "motion") {
+    if (!handResult || !handResult.landmarks || !handResult.landmarks.length) return { gripped: false, x: 0, y: 0 };
+    const lm = handResult.landmarks[0];
+    const dNorm = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+    const midNorm = { x: (lm[4].x + lm[8].x) / 2, y: (lm[4].y + lm[8].y) / 2 };
+    const pt = toMirroredCanvas(midNorm, dims.w, dims.h, video);
+    return { gripped: dNorm < PINCH_THRESHOLD, x: pt.x, y: pt.y };
+  }
+  const gripped = !!(pointerInput && pointerInput.down && pointerInput.points.length);
+  const pt = gripped ? pointerInput.points[0] : { x: 0, y: 0 };
+  return { gripped, x: pt.x, y: pt.y };
+}
+
+function loop(tsMs) {
+  requestAnimationFrame(loop);
+  if (mode === "motion" && video.readyState < 2) return;
+  const { ctx, w, h } = dims;
+  ctx.save();
+  shake.apply(ctx);
+  if (mode === "motion") drawMirroredVideo(ctx, video, w, h);
+  else drawFallbackBackground(ctx, w, h);
+
+  let handResult = null;
+  if (mode === "motion") {
+    handResult = handTracker.detect(video, tsMs);
+    if (state === "raise") {
+      let raised = false;
+      if (handResult && handResult.landmarks) for (const lm of handResult.landmarks) if (isHandRaised(lm)) raised = true;
+      if (startGate.update(tsMs, raised)) goReady();
+    }
+  }
+  const grip = gripState(handResult);
+
+  if (state === "playing") stepGame(tsMs, grip);
+
+  // 커서(잡는 손) 표시
+  if (grip.gripped) {
+    ctx.beginPath();
+    ctx.arc(grip.x, grip.y, 18, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,183,3,0.7)";
+    ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawIntro(ctx, w, h) {
+  ctx.save();
+  ctx.fillStyle = "#00000090";
+  ctx.fillRect(0, 0, w, h);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillStyle = "#fff"; ctx.shadowColor = "#000"; ctx.shadowBlur = 10;
+  ctx.font = `900 ${fluidPx(dims, 50)}px sans-serif`;
+  ctx.fillText("4 + 6 = 10", w / 2, h * 0.4);
+  ctx.fillStyle = "#ffd166";
+  ctx.font = `bold ${fluidPx(dims, 24)}px sans-serif`;
+  ctx.fillText("🥌 스톤 3개를 던져서 합이 정확히 10이 되게 해요!", w / 2, h * 0.53);
+  ctx.restore();
+}
+
+function goReady() {
+  state = "ready";
+  document.getElementById("raisePanel").style.display = "none";
+  document.getElementById("readyPanel").style.display = "flex";
+  if (!isMuted()) sound.click();
+  setTimeout(() => {
+    document.getElementById("readyPanel").style.display = "none";
+    startCountdown();
+  }, 500);
+}
+
+function stepGame(tsMs, grip) {
+  const { ctx, w, h } = dims;
+  const remain = Math.max(0, playEndAt - performance.now());
+  if (remain <= 0) { endGame(); return; }
+  const now = performance.now();
+  if (now < introUntil) { drawIntro(ctx, w, h); return; }
+  const { cx, cy, R } = houseGeom();
+  const scale = houseScaleForLevel(autoDiff.level);
+  const home = stoneHomePos();
+
+  // 힘 조절 방식: 파워 게이지가 자동으로 0↔1을 오가고, 원하는 순간에 한 번만 누르면(핀치/터치)
+  // 그 세기로 스톤이 하우스 쪽으로 곧게 굴러간다. 드래그 정확도가 필요 없어 1학년도 쉽게 조절할 수 있다.
+  const FRICTION = Math.min(w, h) * 0.45;
+  const houseDist = home.y - cy;                       // 홈에서 하우스 중심까지 거리
+  const reach = R * scale * 1.15;                      // 이 범위 안에서 파워로 조절
+  const minDist = Math.max(20, houseDist - reach), maxDist = houseDist + reach;
+  const powerFrac = charging ? (Math.sin((now - chargeStartAt) / 620) + 1) / 2 : 0;
+
+  // 입력 엣지는 매 프레임 갱신해야 "누른 채로 유지"된 상태가 다음 스톤까지 새어나가지 않는다
+  let pressed = false;
+  if (mode === "motion") { pressed = grip.gripped && !wasPressed; wasPressed = grip.gripped; }
+  else { pressed = !!(pointerInput && pointerInput.consumeJustDown()); }
+
+  if (charging && !stone.moving && !stone.settled) {
+    if (pressed) {
+      charging = false;
+      const targetDist = minDist + (maxDist - minDist) * powerFrac;
+      // 등가속 감속에서 정확히 targetDist 만큼 가고 멈추는 초기 속도
+      launchStone(0, -Math.sqrt(2 * FRICTION * targetDist));
+    }
+  }
+
+  if (stone.moving) {
+    const spd = Math.hypot(stone.vx, stone.vy);
+    if (spd > 1) {
+      const decel = FRICTION * (1 / 60);
+      const nvx = stone.vx - (stone.vx / spd) * decel;
+      const nvy = stone.vy - (stone.vy / spd) * decel;
+      stone.vx = (Math.sign(nvx) === Math.sign(stone.vx)) ? nvx : 0;
+      stone.vy = (Math.sign(nvy) === Math.sign(stone.vy)) ? nvy : 0;
+      stone.x += stone.vx * (1 / 60);
+      stone.y += stone.vy * (1 / 60);
+      stone.rot += spd * 0.002;
+    } else {
+      stone.vx = 0; stone.vy = 0;
+    }
+    const outOfBounds = stone.x < -80 || stone.x > w + 80 || stone.y < -80 || stone.y > h + 80;
+    if (outOfBounds) { stone.moving = false; stone.settled = true; thrown++; spawnPopup(popups, w / 2, h * 0.5, "너무 세게!", "#ef476f");
+      if (roundTotal > 10) { roundFail("10을 넘었어요! 다시!"); }
+      else if (thrown >= STONES_PER_ROUND) { roundFail(`아깝다! ${roundTotal}에서 멈췄어요`); }
+      else setTimeout(() => { if (state === "playing" && !roundOver) newStone(); }, 500);
+    } else if (Math.hypot(stone.vx, stone.vy) < 1) {
+      settleStone();
+    }
+  }
+
+  // 하우스(과녁)
+  ctx.save();
+  const ringColors = ["#4cc9f0", "#fff", "#ef476f", "#fff", "#ffd166"];
+  for (let i = 0; i < RING_VALUES.length; i++) {
+    const r = R * scale * (1 - i * 0.2);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = ringColors[i]; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = "#0b0e1f55"; ctx.stroke();
+  }
+  RING_VALUES.forEach((v, i) => {
+    const r = R * scale * (1 - i * 0.2) - (R * scale * 0.1);
+    ctx.fillStyle = "#0b0e1f";
+    ctx.font = `900 ${fluidPx(dims, 18)}px sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(v, cx, cy - r);
+  });
+  ctx.restore();
+
+  // (목표 표지판은 상단 배너의 "n / 10" 과 내용이 겹치고 서로 가려서 제거)
+
+  // 힘 조절 게이지 + 도착 예상 지점 표시(게이지가 움직이는 동안 실시간으로 어디에 멈출지 보여줌)
+  if (charging && !stone.moving && !stone.settled) {
+    const predictY = home.y - (minDist + (maxDist - minDist) * powerFrac);
+    ctx.save();
+    ctx.setLineDash([8, 8]);
+    ctx.strokeStyle = "#ffd16688"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(home.x, home.y); ctx.lineTo(home.x, predictY); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(home.x, predictY, fluidPx(dims, 16, { min: 12, max: 24 }), 0, Math.PI * 2);
+    ctx.strokeStyle = "#06d6a0"; ctx.lineWidth = 4; ctx.stroke();
+    ctx.restore();
+
+    const gaugeW = Math.min(w * 0.55, 340), gaugeH = fluidPx(dims, 22, { min: 16, max: 30 });
+    const gx = w / 2 - gaugeW / 2, gy = h * 0.80; // 하단 안내문과 "힘 %" 라벨이 겹치지 않게 살짝 올림
+    ctx.save();
+    ctx.fillStyle = "#0b0e1fcc";
+    ctx.beginPath(); ctx.roundRect(gx, gy, gaugeW, gaugeH, gaugeH / 2); ctx.fill();
+    ctx.strokeStyle = "#ffffff55"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = powerFrac < 0.4 ? "#4cc9f0" : powerFrac < 0.8 ? "#06d6a0" : "#ef476f";
+    ctx.beginPath(); ctx.roundRect(gx + 2, gy + 2, Math.max(0, (gaugeW - 4) * powerFrac), gaugeH - 4, (gaugeH - 4) / 2); ctx.fill();
+    ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = `bold ${fluidPx(dims, 15)}px sans-serif`;
+    ctx.fillText("힘 " + Math.round(powerFrac * 100) + "%", w / 2, gy + gaugeH + fluidPx(dims, 17));
+    ctx.restore();
+  }
+
+  // 스톤
+  const stoneR = fluidPx(dims, 42, { min: 28, max: 60 });
+  ctx.save();
+  ctx.translate(stone.x, stone.y);
+  ctx.rotate(stone.rot);
+  if (stoneImg) {
+    ctx.drawImage(stoneImg, -stoneR, -stoneR, stoneR * 2, stoneR * 2);
+  } else {
+    ctx.beginPath(); ctx.arc(0, 0, stoneR, 0, Math.PI * 2);
+    ctx.fillStyle = "#ef476f"; ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = "#9aa0c0"; ctx.stroke();
+  }
+  ctx.restore();
+
+  particles = updateParticles(particles, 1 / 60);
+  drawParticles(ctx, particles);
+  confetti = updateConfetti(confetti, 1 / 60);
+  drawConfetti(ctx, confetti);
+  popups = updatePopups(popups, 1 / 60);
+  drawPopups(ctx, popups);
+  bigPopups = updateBigPopups(bigPopups, 1 / 60);
+  drawBigPopups(ctx, bigPopups);
+
+  drawVignette(ctx, w, h, 0.18);
+  drawHudBanner(ctx, dims, [
+    { text: `${roundTotal} / 10   (${thrown}/${STONES_PER_ROUND}개 던짐)`, size: 30, weight: "900", color: "#1d2b4d" },
+    { text: `🔥${combo}   기록 ${count}번   ⏱ ${Math.ceil(remain / 1000)}초`, size: 16, color: "#e8590c" },
+  ]);
+  ctx.save();
+  ctx.textAlign = "center";
+  const hintFont = fluidPx(dims, 14);
+  ctx.font = `${hintFont}px sans-serif`;
+  ctx.fillStyle = "#1d2b4d"; ctx.shadowColor = "rgba(255,255,255,0.9)"; ctx.shadowBlur = 6;
+  ctx.fillText(mode === "motion" ? "🤏 초록 동그라미를 보고, 원하는 힘일 때 손가락을 모아요!" : "👆 초록 동그라미를 보고, 원하는 힘일 때 화면을 눌러요!", w / 2, h - hintFont * 1.4);
+  ctx.restore();
+
+  drawLevelBadge(ctx, w, h, autoDiff.level);
+}
+
+init();
+</script>
+</body>
+</html>
