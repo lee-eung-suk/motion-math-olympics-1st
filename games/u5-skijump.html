@@ -207,6 +207,100 @@ function drawForwardTrack(ctx, w, h, state, dt, opts = {}) {
   } catch (e) { try { ctx.restore(); } catch (e2) {} }
 }
 
+// ── 1인칭 몰입 연출 ────────────────────────────────────────────────
+// 소실점에서 바깥으로 뻗어 나오는 속도선. intensity(0~1.4)에 따라 개수·굵기·흐르는 속도가 함께 올라간다.
+const speedLines = [];
+function drawSpeedLines(ctx, w, h, lines, dt, opts = {}) {
+  const vx = opts.vx ?? w / 2, vy = opts.vy ?? h * 0.2;
+  const intensity = Math.max(0, Math.min(1.4, opts.intensity ?? 1));
+  const want = Math.round(12 + intensity * 24);
+  while (lines.length < want) lines.push({ a: Math.random() * Math.PI * 2, t: Math.random(), s: 0.6 + Math.random() * 0.8 });
+  while (lines.length > want) lines.pop();
+  const maxR = Math.hypot(w, h) * 0.78;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = opts.color ?? "rgba(255,255,255,0.9)";
+  for (const L of lines) {
+    L.t += dt * L.s * (0.4 + intensity * 1.1);
+    if (L.t > 1) { L.t = 0.05; L.a = Math.random() * Math.PI * 2; L.s = 0.6 + Math.random() * 0.8; }
+    const r0 = L.t * L.t * maxR;
+    const r1 = r0 + maxR * (0.04 + L.t * 0.13);
+    const ca = Math.cos(L.a), sa = Math.sin(L.a);
+    ctx.globalAlpha = Math.min(1, L.t * 2) * 0.42 * (0.35 + intensity * 0.65);
+    ctx.lineWidth = 1 + L.t * 3;
+    ctx.beginPath();
+    ctx.moveTo(vx + ca * r0, vy + sa * r0);
+    ctx.lineTo(vx + ca * r1, vy + sa * r1);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// 스키 한 짝 — 내 발 아래를 내려다본 1인칭 시점(앞코가 위=멀리, 뒤가 아래=가까이)
+function drawSki(ctx, x, y, len, tilt) {
+  const wFar = len * 0.13, wNear = len * 0.20;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(tilt);
+  ctx.save();
+  ctx.globalAlpha = 0.2; ctx.fillStyle = "#0b2240";
+  ctx.beginPath(); ctx.ellipse(len * 0.05, len * 0.08, wNear * 0.9, len * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  // 스키 판
+  ctx.beginPath();
+  ctx.moveTo(0, -len * 0.62);                                        // 위로 들린 앞코
+  ctx.quadraticCurveTo(wFar / 2, -len * 0.5, wFar / 2, -len * 0.4);
+  ctx.lineTo(wNear / 2, len * 0.46);
+  ctx.quadraticCurveTo(wNear / 2, len * 0.52, 0, len * 0.52);
+  ctx.quadraticCurveTo(-wNear / 2, len * 0.52, -wNear / 2, len * 0.46);
+  ctx.lineTo(-wFar / 2, -len * 0.4);
+  ctx.quadraticCurveTo(-wFar / 2, -len * 0.5, 0, -len * 0.62);
+  ctx.closePath();
+  ctx.fillStyle = "#ef476f"; ctx.fill();
+  ctx.strokeStyle = "#1d2b4d"; ctx.lineWidth = Math.max(2, len * 0.03); ctx.stroke();
+  // 가운데 흰 줄무늬
+  ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = Math.max(1.5, len * 0.022);
+  ctx.beginPath(); ctx.moveTo(0, -len * 0.5); ctx.lineTo(0, len * 0.44); ctx.stroke();
+  // 바인딩(부츠 고정부)
+  ctx.fillStyle = "#1d2b4d";
+  ctx.beginPath(); ctx.roundRect(-wNear * 0.62, -len * 0.08, wNear * 1.24, len * 0.22, len * 0.03); ctx.fill();
+  ctx.restore();
+}
+
+function skiMetrics(w, h) {
+  // 스키가 화면 밖으로 잘리지 않고, 아래 기록 문구와도 겹치지 않는 크기·기준선
+  const len = Math.min(h * 0.30, w * 0.30);
+  return { len, spread: len * 0.42, baseY: h * 0.86 };
+}
+
+// 화면 아래쪽에 내 스키 두 짝을 V자로 배치. scale/yOffset을 주면 비행 중 멀어지는 연출이 된다.
+function drawFirstPersonSkis(ctx, w, h, opts = {}) {
+  const m = skiMetrics(w, h);
+  const scale = opts.scale ?? 1;
+  const vSpread = opts.spread ?? 1;           // 1보다 크면 V자로 더 벌어진다(활공 자세)
+  const len = m.len * scale;
+  const sp = m.spread * vSpread * scale;
+  const y = m.baseY + (opts.yOffset ?? 0);
+  const jitter = (opts.vibrate ?? 0) * Math.sin(performance.now() / 34) * m.len * 0.012;
+  drawSki(ctx, w / 2 - sp + jitter, y, len, -0.13 * vSpread);
+  drawSki(ctx, w / 2 + sp - jitter, y, len, 0.13 * vSpread);
+}
+
+// 비행 중 아래로 흘러가는 구름 — 내가 위로 솟구쳤다는 단서
+const FLIGHT_CLOUDS = [0.14, 0.37, 0.63, 0.86].map((x, i) => ({ x, seed: i * 0.27 }));
+function drawFlightClouds(ctx, w, h, p, horizon) {
+  ctx.save();
+  ctx.fillStyle = "#ffffff";
+  FLIGHT_CLOUDS.forEach((c) => {
+    const t = (p * 1.7 + c.seed) % 1;
+    const y = horizon + (h - horizon) * (t * t);
+    const s = (0.25 + t * 1.1) * Math.min(w, h) * 0.10;
+    ctx.globalAlpha = Math.min(1, t * 2.2) * 0.5;
+    ctx.beginPath(); ctx.ellipse(w * c.x, y, s * 1.5, s * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+  });
+  ctx.restore();
+}
+
 // 카드가 매번 같은 자리에 뜨면 손가락을 그 자리에 두고 있는 것만으로 다음 문제까지 계속 정답 처리되는
 // 문제가 있어, 라운드마다 서로 다른 배치(레이아웃)를 무작위로 골라 위치 자체를 바꾼다.
 const CARD_LAYOUTS = [
@@ -429,35 +523,57 @@ function drawSlopeTint(ctx, w, h) {
   ctx.restore();
 }
 
+// 1인칭 도약: 시야가 위로 솟구치고(지평선이 아래로 내려옴), 내 스키는 아래로 작아지며 멀어진다.
 function stepFlightPhase() {
   const { ctx, w, h } = dims;
   const now = performance.now();
   const t = now - flightPhase.startAt;
-  drawSlopeTint(ctx, w, h);
-
   const p = Math.min(1, t / FLIGHT_T);
-  const x = flightPhase.launchX + flightPhase.pixelDist * p;
-  const y = flightPhase.groundY - flightPhase.peakHeight * Math.sin(Math.PI * p);
-  const rot = p * Math.PI * 1.3;
+  const lift = Math.sin(Math.PI * p);          // 0 → 1(최고점) → 0(착지)
+  const horizon = h * 0.16 + lift * h * 0.30;
 
-  if (p < 1 && Math.random() < 0.75) {
-    spawnParticles(particles, x, y, { count: 2, colors: ["#fff", "#ffd166"], speed: 70, life: 320, size: 3 });
+  drawSlopeTint(ctx, w, h);
+  drawForwardTrack(ctx, w, h, trackState, 1 / 60, {
+    speed: 3.6, vanishY: horizon,
+    railColor: "rgba(70,130,190,0.26)", tieColor: "rgba(70,130,190,0.24)",
+  });
+  drawSpeedLines(ctx, w, h, speedLines, 1 / 60, { vy: horizon, intensity: 0.6 + lift * 0.8 });
+  drawFlightClouds(ctx, w, h, p, horizon);
+
+  // 도약 순간의 흰 플래시
+  if (p < 0.18) {
+    ctx.save();
+    ctx.globalAlpha = ((0.18 - p) / 0.18) * 0.5;
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
+    ctx.restore();
   }
 
+  drawFirstPersonSkis(ctx, w, h, {
+    scale: 1 - lift * 0.55,
+    spread: 1.5 + lift * 0.7,
+    yOffset: lift * h * 0.11,
+  });
+
+  if (p < 1 && Math.random() < 0.6) {
+    spawnParticles(particles, Math.random() * w, horizon + Math.random() * (h - horizon) * 0.5,
+      { count: 1, colors: ["#fff", "#ffd166"], speed: 60, life: 320, size: 3 });
+  }
+
+  // 비행 거리를 실시간으로 세어 올린다
   ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(rot);
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = `${fluidPx(dims, 60)}px sans-serif`;
-  ctx.fillText("🤸", 0, 0);
+  ctx.textAlign = "center";
+  ctx.font = `900 ${fluidPx(dims, 34)}px sans-serif`;
+  ctx.fillStyle = "#ffd166"; ctx.shadowColor = "#000"; ctx.shadowBlur = 10;
+  ctx.fillText(`${Math.round(flightPhase.meters * Math.min(1, p * 1.2))}m`, w / 2, h * 0.3);
   ctx.restore();
 
   if (p >= 1 && !flightPhase.landed) {
     flightPhase.landed = true;
     const label = flightPhase.quality === "perfect" ? "완벽한 착지!" : flightPhase.quality === "good" ? "좋은 착지!" : "착지!";
-    spawnParticles(particles, x, flightPhase.groundY, { count: 26, colors: ["#fff", "#dff5ff"], speed: 270, life: 500 });
-    spawnConfetti(confetti, x, flightPhase.groundY, 40);
-    spawnBigPopup(bigPopups, w / 2, h * 0.4, `${label} ${flightPhase.meters}m!`, "#ffd166");
+    const m = skiMetrics(w, h);
+    spawnParticles(particles, w / 2, m.baseY - m.len * 0.3, { count: 26, colors: ["#fff", "#dff5ff"], speed: 270, life: 500 });
+    spawnConfetti(confetti, w / 2, h * 0.7, 40);
+    spawnBigPopup(bigPopups, w / 2, h * 0.42, `${label} ${flightPhase.meters}m!`, "#ffd166");
     shake.trigger(6, 140);
     if (!isMuted()) sound.pop();
   }
@@ -478,9 +594,12 @@ function stepFlightPhase() {
 }
 
 function stepRunPhase(ctx, w, h, cursors) {
+  // 기록·시간은 하단에 두면 1인칭 스키와 겹치므로 배너 안으로 넣는다
+  const remainSec = Math.ceil(Math.max(0, playEndAt - performance.now()) / 1000);
   const bannerBottom = drawHudBanner(ctx, dims, [
-    { text: "👉 빈칸에 들어갈 정답 카드를 짚어요!", size: 20, weight: "900", color: "#e8590c" },
+    { text: "👉 빈칸에 들어갈 수를 짚어요!", size: 20, weight: "900", color: "#e8590c" },
     { text: question.display.join("   "), size: 30, weight: "900", color: "#1d2b4d" },
+    { text: `🔥${combo}   기록 ${count}개   ⏱ ${remainSec}초`, size: 14, weight: "bold", color: "#5c6b8a" },
   ]);
 
   // 속도 게이지: 정답을 맞힐 때마다 올라가고, 찰수록 배경/스키어 속도가 함께 빨라진다
@@ -541,15 +660,19 @@ function stepRunPhase(ctx, w, h, cursors) {
   if (!resolving && overAnyCardNow && !overAnyCardPrev) answerTapped(enteredCard);
   overAnyCardPrev = overAnyCardNow;
 
-  // 달리는 스키어(제자리 바운스) — 속도 게이지가 찰수록 더 빠르게 뛴다
-  const bounceHz = 180 - speedFrac * 90;
-  const bounce = Math.abs(Math.sin(performance.now() / bounceHz)) * 10;
-  ctx.save();
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = `${fluidPx(dims, 50)}px sans-serif`;
-  ctx.shadowColor = "#000"; ctx.shadowBlur = 8;
-  ctx.fillText("🏃‍♂️", w / 2, h * 0.86 - bounce);
-  ctx.restore();
+  // 1인칭 시점: 내 발 아래 스키 두 짝. 게이지가 찰수록 더 심하게 진동하고 V자로 벌어진다.
+  drawFirstPersonSkis(ctx, w, h, {
+    vibrate: 0.4 + speedFrac * 1.6,
+    spread: 1 + speedFrac * 0.5,
+    yOffset: -Math.abs(Math.sin(performance.now() / (180 - speedFrac * 90))) * h * 0.008,
+  });
+  // 스키 옆으로 튀는 눈보라 — 빠를수록 많이 튄다
+  if (Math.random() < 0.3 + speedFrac * 0.5) {
+    const m = skiMetrics(w, h);
+    spawnParticles(particles, w / 2 + (Math.random() < 0.5 ? -1 : 1) * m.spread * 1.6, m.baseY - m.len * 0.3, {
+      count: 1, colors: ["#ffffff", "#dff1fb"], speed: 170, life: 420, size: 3,
+    });
+  }
 }
 
 function stepTakeoffPhase(ctx, w, h, result) {
@@ -583,6 +706,9 @@ function stepTakeoffPhase(ctx, w, h, result) {
   ctx.lineWidth = 3; ctx.strokeStyle = "#ffb703"; ctx.stroke();
   ctx.restore();
 
+  // 도약 대기 중에도 내 스키는 계속 보인다 — 게이지가 가득 차 V자로 활짝 벌어진 활공 자세
+  drawFirstPersonSkis(ctx, w, h, { vibrate: 2.2, spread: 1.5 });
+
   let triggered = false;
   if (mode === "motion") {
     const raisedNow = bothHandsRaised(result);
@@ -608,6 +734,9 @@ function stepGame(tsMs, cursors, result) {
     speed: 1 + speedFrac * 2.5, vanishY: h * 0.16,
     railColor: "rgba(70,130,190,0.3)", tieColor: "rgba(70,130,190,0.28)",
   });
+  drawSpeedLines(ctx, w, h, speedLines, 1 / 60, {
+    vy: h * 0.16, intensity: 0.25 + speedFrac * 0.95, color: "rgba(230,246,255,0.9)",
+  });
 
   if (phase === "run") stepRunPhase(ctx, w, h, cursors);
   else stepTakeoffPhase(ctx, w, h, result);
@@ -620,13 +749,6 @@ function stepGame(tsMs, cursors, result) {
   drawBigPopups(ctx, bigPopups);
 
   drawVignette(ctx, w, h, 0.18);
-  ctx.save();
-  ctx.textAlign = "center";
-  ctx.font = `bold ${fluidPx(dims, 16)}px sans-serif`;
-  ctx.fillStyle = "#ffd166"; ctx.shadowColor = "#000"; ctx.shadowBlur = 6;
-  ctx.fillText(`🔥${combo}   기록 ${count}개   ⏱ ${Math.ceil(remain / 1000)}초`, w / 2, h - fluidPx(dims, 14));
-  ctx.restore();
-
   drawLevelBadge(ctx, w, h, autoDiff.level);
 }
 

@@ -73,11 +73,24 @@ requestWakeLock();
 const UNIT = "u2";
 const TITLE = "스톤을 굴려 10만들기 컬링";
 const RECORD_SUFFIX = "번 성공";
-const MEDALS = { bronze: 4, silver: 7, gold: 10 };
+const MEDALS = { bronze: 5, silver: 9, gold: 13 };
 const mode = InputMode.get();
-const STONES_PER_ROUND = 3;
-const RING_VALUES = [1, 2, 3, 4, 5]; // 바깥→안쪽
+// 규칙: 십틀(10칸)에 이미 채워진 수를 보여주고, "채워진 수 + ? = 10"의 보수 하나만 맞히면 된다.
+// 예전에는 스톤 3개의 점수를 더해 10을 만들어야 해서 초1에게 세 수의 덧셈을 요구했고 성공률이 너무 낮았다.
+const ATTEMPTS = 2;                 // 한 라운드에 던질 수 있는 횟수
+// 하우스를 동심원 3개 링으로 나누고 링마다 후보 수를 적는다. 스톤은 곧게만 굴러가므로
+// (부채꼴로 나누면 좌·우 구역에는 아예 닿을 수 없다) "얼마나 세게 미느냐" = "어느 수를 고르느냐"가 된다.
+const RINGS = 3;
 const PINCH_THRESHOLD = 0.06; // 정규화 좌표 기준 엄지-검지 거리
+
+function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("gameCanvas");
@@ -93,22 +106,21 @@ document.getElementById("homeBtn2").addEventListener("click", () => { bgm.stop()
 
 function houseGeom() {
   const { w, h } = dims;
-  // cy/R을 너무 위로·크게 잡으면 상단 HUD 문구·"목표 10" 표지판과 겹치며 과녁 윗부분이
-  // 화면 밖으로 잘려 안 보이는 문제가 있었다 — 화면비에 상관없이 상단 문구 아래에 온전히 들어가도록 조정.
-  const cx = w / 2, cy = h * 0.34;
-  const R = Math.min(w, h) * 0.16;
+  // 상단에 십틀(10칸 틀)이 들어가므로 하우스를 화면 중앙쯤으로 내려 서로 겹치지 않게 한다.
+  const cx = w / 2, cy = h * 0.47;
+  const R = Math.min(w, h) * 0.20;
   return { cx, cy, R };
 }
-// 스톤 시작 위치(홈)를 화면 아래쪽 끝에 두면 당길 수 있는 공간이 거의 없어 아무리 당겨도
-// 멀리 못 나가는 문제가 있었다 — 화면 중간쯤으로 올려 아래로 당길 공간을 넉넉히 확보한다.
+// 스톤 시작 위치(홈) — 아래 파워 게이지와 겹치지 않도록 화면 하단보다 살짝 위에 둔다.
 function stoneHomePos() {
   const { w, h } = dims;
-  return { x: w / 2, y: h * 0.62 };
+  return { x: w / 2, y: h * 0.78 };
 }
-function houseScaleForLevel(level) {
-  if (level === 1) return 1.1;
-  if (level === 2) return 0.95;
-  return 0.8;
+// 레벨이 올라갈수록 하우스가 작아지고, 레벨1에서만 정답 구역을 반짝여 알려 준다.
+function roundConfigForLevel(level) {
+  if (level === 1) return { houseScale: 1.2, filledMin: 5, filledMax: 9, hint: true };
+  if (level === 2) return { houseScale: 1.0, filledMin: 2, filledMax: 9, hint: false };
+  return { houseScale: 0.86, filledMin: 1, filledMax: 9, hint: false };
 }
 
 const handTracker = new HandTracker();
@@ -144,7 +156,7 @@ const holdFill = document.getElementById("holdFill");
 const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, combo, maxCombo, playEndAt, introUntil = 0;
-let thrown, roundTotal, stone, roundOver;
+let filledVal, needVal, ringVals, attemptsLeft, stone, roundOver;
 let charging = false, wasPressed = false, chargeStartAt = 0;
 let particles = [], popups = [], bigPopups = [], confetti = [];
 const shake = new ScreenShake();
@@ -157,9 +169,26 @@ function newStone() {
   charging = true;
   chargeStartAt = performance.now();
 }
+// 라운드 1개 = 보수 문제 1개. 십틀에 채워진 수(filledVal)를 보여주고 빈칸 수(needVal)를 맞히면 성공.
 function newRound() {
-  thrown = 0; roundTotal = 0; roundOver = false;
+  const cfg = roundConfigForLevel(autoDiff.level);
+  filledVal = randInt(cfg.filledMin, cfg.filledMax);
+  needVal = 10 - filledVal;
+  // 정답과 가까운 수들로 나머지 구역을 채워, 찍기보다 실제로 세어 보게 만든다
+  const pool = [];
+  for (let v = 1; v <= 9; v++) if (v !== needVal) pool.push(v);
+  pool.sort((a, b) => Math.abs(a - needVal) - Math.abs(b - needVal));
+  const near = shuffle(pool.slice(0, cfg.hint ? 6 : 4)).slice(0, RINGS - 1);
+  ringVals = near;
+  ringVals.splice(Math.floor(Math.random() * RINGS), 0, needVal);
+  attemptsLeft = ATTEMPTS;
+  roundOver = false;
   newStone();
+}
+
+// 스톤이 멈춘 곳이 어느 링인지 — 0이 가장 안쪽
+function ringIndexAt(dist, R) {
+  return Math.min(RINGS - 1, Math.floor((dist / R) * RINGS));
 }
 
 function startCountdown() {
@@ -218,26 +247,25 @@ function roundSuccess() {
   const { cx, cy } = houseGeom();
   spawnParticles(particles, cx, cy, { count: 30, colors: ["#ffd166", "#f59e0b", "#fff"], speed: 300, life: 600 });
     spawnConfetti(confetti, cx, cy, 34);
-  spawnBigPopup(bigPopups, dims.w / 2, dims.h * 0.5, "정확히 10!", "#ffd166");
+  spawnBigPopup(bigPopups, dims.w / 2, dims.h * 0.62, `${filledVal} + ${needVal} = 10!`, "#ffd166");
   shake.trigger(6, 160);
   if (!isMuted()) { sound.success(); if (combo === 3) sound.comboUp(); if (combo >= 5 && combo % 5 === 0) sound.fever(); }
-  setTimeout(() => { if (state === "playing") newRound(); }, 900);
+  setTimeout(() => { if (state === "playing") newRound(); }, 1000);
 }
-function roundFail(msg) {
+// 한 번 빗나가도 바로 실패시키지 않고 기회를 한 번 더 준다(초1 기준으로 관대하게)
+function attemptFail(msg) {
+  attemptsLeft--;
+  spawnPopup(popups, dims.w / 2, dims.h * 0.66, msg, "#ef476f");
+  if (!isMuted()) sound.wrong();
+  if (attemptsLeft <= 0) { roundFail(); return; }
+  setTimeout(() => { if (state === "playing" && !roundOver) newStone(); }, 700);
+}
+function roundFail() {
   roundOver = true;
   combo = 0;
   autoDiff.reportWrong();
-  spawnPopup(popups, dims.w / 2, dims.h * 0.5, msg, "#ef476f");
-  if (!isMuted()) sound.wrong();
-  setTimeout(() => { if (state === "playing") newRound(); }, 900);
-}
-
-function ringValueAt(dist, R) {
-  for (let i = 0; i < RING_VALUES.length; i++) {
-    const outerFrac = 1 - i * 0.2;
-    if (dist <= R * outerFrac) return RING_VALUES[i];
-  }
-  return 0;
+  spawnBigPopup(bigPopups, dims.w / 2, dims.h * 0.62, `정답은 ${needVal}!`, "#ef476f");
+  setTimeout(() => { if (state === "playing") newRound(); }, 1200);
 }
 
 function launchStone(vx, vy) {
@@ -248,24 +276,19 @@ function launchStone(vx, vy) {
 function settleStone() {
   stone.moving = false; stone.settled = true;
   const { cx, cy, R } = houseGeom();
-  const scale = houseScaleForLevel(autoDiff.level);
+  const cfg = roundConfigForLevel(autoDiff.level);
   const dist = Math.hypot(stone.x - cx, stone.y - cy);
-  const val = ringValueAt(dist, R * scale);
-  thrown++;
   shake.trigger(4, 100);
   if (!isMuted()) sound.tone(90, 0.16, "sawtooth", 0.16);
-  if (val > 0) {
-    roundTotal += val;
-    spawnBigPopup(bigPopups, stone.x, stone.y - 40, `+${val}!`, "#ffd166");
+  if (dist > R * cfg.houseScale) { attemptFail("조금 빗나갔어요! 한 번 더"); return; }
+  const val = ringVals[ringIndexAt(dist, R * cfg.houseScale)];
+  if (val === needVal) {
     spawnParticles(particles, stone.x, stone.y, { count: 14, colors: ["#ffd166", "#fff"], speed: 200, life: 400 });
     if (!isMuted()) sound.pop();
+    roundSuccess();
   } else {
-    spawnPopup(popups, stone.x, stone.y - 20, "빗나감", "#9aa0c0");
+    attemptFail(`${val}칸이에요! 한 번 더`);
   }
-  if (roundTotal > 10) { roundFail("10을 넘었어요! 다시!"); return; }
-  if (roundTotal === 10) { roundSuccess(); return; }
-  if (thrown >= STONES_PER_ROUND) { roundFail(`아깝다! ${roundTotal}에서 멈췄어요`); return; }
-  setTimeout(() => { if (state === "playing" && !roundOver) newStone(); }, 500);
 }
 
 function endGame() {
@@ -368,10 +391,95 @@ function drawIntro(ctx, w, h) {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillStyle = "#fff"; ctx.shadowColor = "#000"; ctx.shadowBlur = 10;
   ctx.font = `900 ${fluidPx(dims, 50)}px sans-serif`;
-  ctx.fillText("4 + 6 = 10", w / 2, h * 0.4);
+  ctx.fillText("6 + ? = 10", w / 2, h * 0.4);
   ctx.fillStyle = "#ffd166";
   ctx.font = `bold ${fluidPx(dims, 24)}px sans-serif`;
-  ctx.fillText("🥌 스톤 3개를 던져서 합이 정확히 10이 되게 해요!", w / 2, h * 0.53);
+  ctx.fillText("🥌 빈칸을 채우는 수 자리에 스톤을 굴려요!", w / 2, h * 0.53);
+  ctx.restore();
+}
+
+// 수를 점으로도 함께 보여준다 — 글자를 못 읽어도 개수를 세어 알 수 있게
+function drawCountDots(ctx, x, y, n, r) {
+  const perRow = 5, rows = Math.ceil(n / perRow);
+  ctx.save();
+  ctx.fillStyle = "#1d2b4d";
+  for (let i = 0; i < n; i++) {
+    const row = Math.floor(i / perRow), col = i % perRow;
+    const inRow = Math.min(perRow, n - row * perRow);
+    ctx.beginPath();
+    ctx.arc(x + (col - (inRow - 1) / 2) * r * 2.6, y + (row - (rows - 1) / 2) * r * 2.6, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// 십틀(ten-frame): 초1 교과서의 10 가르기·모으기 교구. 채워진 칸과 빈칸을 한눈에 보여 준다.
+function drawTenFrame(ctx, w, topY, filled) {
+  const cell = fluidPx(dims, 40, { min: 22, max: 48 });
+  const frameW = cell * 5, frameH = cell * 2;
+  const x0 = w / 2 - frameW / 2, y0 = topY;
+  ctx.save();
+  ctx.fillStyle = "rgba(255,255,255,0.95)";
+  ctx.beginPath(); ctx.roundRect(x0 - 8, y0 - 8, frameW + 16, frameH + 16, 12); ctx.fill();
+  ctx.strokeStyle = "#1d2b4d"; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.roundRect(x0 - 8, y0 - 8, frameW + 16, frameH + 16, 12); ctx.stroke();
+  for (let i = 0; i < 10; i++) {
+    const x = x0 + (i % 5) * cell, y = y0 + Math.floor(i / 5) * cell;
+    ctx.strokeStyle = "#1d2b4d"; ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, cell, cell);
+    ctx.beginPath(); ctx.arc(x + cell / 2, y + cell / 2, cell * 0.30, 0, Math.PI * 2);
+    if (i < filled) {
+      ctx.fillStyle = "#4cc9f0"; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = "#1d2b4d"; ctx.stroke();
+    } else {
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "#ef476f"; ctx.lineWidth = 2; ctx.stroke();
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+  return y0 + frameH;
+}
+
+// 하우스를 동심원 3개 링으로 그리고, 링마다 후보 수를 "숫자 + 점"으로 위쪽 호에 적는다.
+// 스톤은 아래에서 곧게 올라오므로 파워 조절만으로 원하는 링을 고를 수 있다.
+function drawHouse(ctx, cx, cy, R, hint, now) {
+  const ringColors = ["#ffcbd6", "#c6f0d9", "#a5dcf7"]; // [0]=가장 안쪽
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, R * 1.05, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,0.95)"; ctx.fill();
+  ctx.strokeStyle = "#1d2b4d"; ctx.lineWidth = 3; ctx.stroke();
+  // 바깥 링부터 채워 안쪽 링이 위에 덮이게 한다
+  for (let i = RINGS - 1; i >= 0; i--) {
+    const r = R * ((i + 1) / RINGS);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = ringColors[i % ringColors.length]; ctx.fill();
+    if (hint && ringVals[i] === needVal) {
+      ctx.save();
+      ctx.globalAlpha = 0.28 + Math.sin(now / 260) * 0.2;
+      ctx.fillStyle = "#ffd166"; ctx.fill();
+      ctx.restore();
+    }
+    ctx.strokeStyle = "#1d2b4d"; ctx.lineWidth = 3; ctx.stroke();
+  }
+  // 각 링의 라벨은 링 두께 한가운데(위쪽)에 얹는다
+  const band = R / RINGS;
+  const numSize = Math.max(13, Math.min(band * 0.52, fluidPx(dims, 30, { min: 15, max: 36 })));
+  const dotR = Math.max(2, band * 0.075);
+  for (let i = 0; i < RINGS; i++) {
+    const v = ringVals[i];
+    const ry = cy - band * (i + 0.5);
+    ctx.font = `900 ${numSize}px sans-serif`;
+    const numW = ctx.measureText(String(v)).width;
+    const dotsW = Math.min(5, v) * dotR * 2.6;
+    const gap = dotR * 2.4;
+    const total = numW + gap + dotsW;
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "#1d2b4d";
+    ctx.fillText(v, cx - total / 2, ry);
+    drawCountDots(ctx, cx - total / 2 + numW + gap + dotsW / 2, ry, v, dotR);
+  }
   ctx.restore();
 }
 
@@ -393,8 +501,16 @@ function stepGame(tsMs, grip) {
   const now = performance.now();
   if (now < introUntil) { drawIntro(ctx, w, h); return; }
   const { cx, cy, R } = houseGeom();
-  const scale = houseScaleForLevel(autoDiff.level);
+  const cfg = roundConfigForLevel(autoDiff.level);
+  const scale = cfg.houseScale;
   const home = stoneHomePos();
+
+  // 문제(십틀 + 식)를 먼저 그린다 — 아래 요소들과 겹치지 않도록 배너 높이를 받아 이어 붙인다
+  const bannerBottom = drawHudBanner(ctx, dims, [
+    { text: `${filledVal} + ? = 10`, size: 34, weight: "900", color: "#1d2b4d" },
+    { text: `🔥${combo}   기록 ${count}번   ⏱ ${Math.ceil(remain / 1000)}초   🥌 기회 ${attemptsLeft}`, size: 15, color: "#e8590c" },
+  ]);
+  drawTenFrame(ctx, w, bannerBottom + fluidPx(dims, 14, { min: 8, max: 20 }), filledVal);
 
   // 힘 조절 방식: 파워 게이지가 자동으로 0↔1을 오가고, 원하는 순간에 한 번만 누르면(핀치/터치)
   // 그 세기로 스톤이 하우스 쪽으로 곧게 굴러간다. 드래그 정확도가 필요 없어 1학년도 쉽게 조절할 수 있다.
@@ -433,34 +549,15 @@ function stepGame(tsMs, grip) {
       stone.vx = 0; stone.vy = 0;
     }
     const outOfBounds = stone.x < -80 || stone.x > w + 80 || stone.y < -80 || stone.y > h + 80;
-    if (outOfBounds) { stone.moving = false; stone.settled = true; thrown++; spawnPopup(popups, w / 2, h * 0.5, "너무 세게!", "#ef476f");
-      if (roundTotal > 10) { roundFail("10을 넘었어요! 다시!"); }
-      else if (thrown >= STONES_PER_ROUND) { roundFail(`아깝다! ${roundTotal}에서 멈췄어요`); }
-      else setTimeout(() => { if (state === "playing" && !roundOver) newStone(); }, 500);
+    if (outOfBounds) {
+      stone.moving = false; stone.settled = true;
+      attemptFail("너무 세게! 한 번 더");
     } else if (Math.hypot(stone.vx, stone.vy) < 1) {
       settleStone();
     }
   }
 
-  // 하우스(과녁)
-  ctx.save();
-  const ringColors = ["#4cc9f0", "#fff", "#ef476f", "#fff", "#ffd166"];
-  for (let i = 0; i < RING_VALUES.length; i++) {
-    const r = R * scale * (1 - i * 0.2);
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = ringColors[i]; ctx.fill();
-    ctx.lineWidth = 2; ctx.strokeStyle = "#0b0e1f55"; ctx.stroke();
-  }
-  RING_VALUES.forEach((v, i) => {
-    const r = R * scale * (1 - i * 0.2) - (R * scale * 0.1);
-    ctx.fillStyle = "#0b0e1f";
-    ctx.font = `900 ${fluidPx(dims, 18)}px sans-serif`;
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(v, cx, cy - r);
-  });
-  ctx.restore();
-
-  // (목표 표지판은 상단 배너의 "n / 10" 과 내용이 겹치고 서로 가려서 제거)
+  drawHouse(ctx, cx, cy, R * scale, cfg.hint, now);
 
   // 힘 조절 게이지 + 도착 예상 지점 표시(게이지가 움직이는 동안 실시간으로 어디에 멈출지 보여줌)
   if (charging && !stone.moving && !stone.settled) {
@@ -475,7 +572,7 @@ function stepGame(tsMs, grip) {
     ctx.restore();
 
     const gaugeW = Math.min(w * 0.55, 340), gaugeH = fluidPx(dims, 22, { min: 16, max: 30 });
-    const gx = w / 2 - gaugeW / 2, gy = h * 0.80; // 하단 안내문과 "힘 %" 라벨이 겹치지 않게 살짝 올림
+    const gx = w / 2 - gaugeW / 2, gy = h * 0.88; // 스톤(홈)과 하단 안내문 사이에 들어가도록
     ctx.save();
     ctx.fillStyle = "#0b0e1fcc";
     ctx.beginPath(); ctx.roundRect(gx, gy, gaugeW, gaugeH, gaugeH / 2); ctx.fill();
@@ -488,7 +585,8 @@ function stepGame(tsMs, grip) {
   }
 
   // 스톤
-  const stoneR = fluidPx(dims, 42, { min: 28, max: 60 });
+  // 링 한 칸(R/3)보다 스톤이 크면 어느 링에 들어갔는지 눈으로 알기 어려워 작게 잡는다
+  const stoneR = fluidPx(dims, 28, { min: 20, max: 38 });
   ctx.save();
   ctx.translate(stone.x, stone.y);
   ctx.rotate(stone.rot);
@@ -511,16 +609,12 @@ function stepGame(tsMs, grip) {
   drawBigPopups(ctx, bigPopups);
 
   drawVignette(ctx, w, h, 0.18);
-  drawHudBanner(ctx, dims, [
-    { text: `${roundTotal} / 10   (${thrown}/${STONES_PER_ROUND}개 던짐)`, size: 30, weight: "900", color: "#1d2b4d" },
-    { text: `🔥${combo}   기록 ${count}번   ⏱ ${Math.ceil(remain / 1000)}초`, size: 16, color: "#e8590c" },
-  ]);
   ctx.save();
   ctx.textAlign = "center";
   const hintFont = fluidPx(dims, 14);
   ctx.font = `${hintFont}px sans-serif`;
   ctx.fillStyle = "#1d2b4d"; ctx.shadowColor = "rgba(255,255,255,0.9)"; ctx.shadowBlur = 6;
-  ctx.fillText(mode === "motion" ? "🤏 초록 동그라미를 보고, 원하는 힘일 때 손가락을 모아요!" : "👆 초록 동그라미를 보고, 원하는 힘일 때 화면을 눌러요!", w / 2, h - hintFont * 1.4);
+  ctx.fillText(mode === "motion" ? "🤏 초록 동그라미가 정답 칸에 올 때 손가락을 모아요!" : "👆 초록 동그라미가 정답 칸에 올 때 화면을 눌러요!", w / 2, h - hintFont * 1.4);
   ctx.restore();
 
   drawLevelBadge(ctx, w, h, autoDiff.level);
