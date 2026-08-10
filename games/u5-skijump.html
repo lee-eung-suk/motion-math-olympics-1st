@@ -303,18 +303,35 @@ function drawFlightClouds(ctx, w, h, p, horizon) {
 
 // 카드가 매번 같은 자리에 뜨면 손가락을 그 자리에 두고 있는 것만으로 다음 문제까지 계속 정답 처리되는
 // 문제가 있어, 라운드마다 서로 다른 배치(레이아웃)를 무작위로 골라 위치 자체를 바꾼다.
+// y는 0.64를 넘기지 않는다 — 그 아래는 1인칭 스키가 차지하고 있어 카드가 가려진다
 const CARD_LAYOUTS = [
-  [{ x: 0.28, y: 0.58 }, { x: 0.72, y: 0.58 }],
-  [{ x: 0.28, y: 0.46 }, { x: 0.72, y: 0.7 }],
-  [{ x: 0.28, y: 0.7 }, { x: 0.72, y: 0.46 }],
-  [{ x: 0.5, y: 0.44 }, { x: 0.5, y: 0.74 }],
-  [{ x: 0.22, y: 0.6 }, { x: 0.78, y: 0.6 }],
+  [{ x: 0.28, y: 0.56 }, { x: 0.72, y: 0.56 }],
+  [{ x: 0.28, y: 0.42 }, { x: 0.72, y: 0.62 }],
+  [{ x: 0.28, y: 0.62 }, { x: 0.72, y: 0.42 }],
+  [{ x: 0.5, y: 0.40 }, { x: 0.5, y: 0.62 }],
+  [{ x: 0.22, y: 0.56 }, { x: 0.78, y: 0.56 }],
 ];
 let cardLayout = CARD_LAYOUTS[0];
 let particles = [], popups = [], bigPopups = [], confetti = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
 let recIndicator = document.getElementById("recIndicator");
+
+// ── 카드 눌림 연출 ────────────────────────────────────────────────
+// 카드가 그냥 사라지듯 판정되면 "내가 눌렀다"는 느낌이 없어서, 슬롯마다 호버/눌림 상태를 들고 있다가
+// 손이 닿으면 살짝 떠오르고, 짚는 순간 쑥 눌렸다가 스프링처럼 되돌아오게 그린다.
+const PRESS_MS = 340;
+let cardFx = [{ hover: 0, pressAt: 0, result: null }, { hover: 0, pressAt: 0, result: null }];
+function resetCardFx() {
+  cardFx = [{ hover: 0, pressAt: 0, result: null }, { hover: 0, pressAt: 0, result: null }];
+}
+// 0에서 1까지 t가 흐르는 동안: 빠르게 눌리고(0~0.14) 감쇠 진동하며 제자리로 돌아온다
+function pressDepth(t) {
+  if (t <= 0 || t >= 1) return 0;
+  if (t < 0.14) return t / 0.14;
+  const k = (t - 0.14) / 0.86;
+  return Math.cos(k * Math.PI * 2.2) * Math.exp(-k * 3.2) * (1 - k);
+}
 
 function newQuestion() {
   question = genQuestion(autoDiff.level);
@@ -323,6 +340,7 @@ function newQuestion() {
   cardRight = { val: leftIsCorrect ? question.wrong : question.correct, correct: !leftIsCorrect };
   cardLayout = CARD_LAYOUTS[Math.floor(Math.random() * CARD_LAYOUTS.length)];
   resolving = false;
+  resetCardFx();
   // 카드가 새로 나타난 시점에 손가락이 이미 카드 위에 있어도 "새로 들어온 것"으로 치지 않도록
   // 강제로 true를 넣어, 최소 한 번은 카드 밖으로 나갔다 들어와야 다음 탭이 인정되게 한다
   overAnyCardPrev = true;
@@ -623,42 +641,90 @@ function stepRunPhase(ctx, w, h, cursors) {
   const cardW = Math.min(w * 0.36, 220), cardH = fluidPx(dims, 100, { min: 70, max: 140 });
   const cards = [cardLeft, cardRight];
   const cardPos = cardLayout.map((f) => ({ x: w * f.x, y: h * f.y }));
-  cards.forEach((card, i) => {
-    const { x: cx, y: cy } = cardPos[i];
-    ctx.save();
-    // 캔디 카드: 크림 바탕 + 굵은 남색 테두리 + 그림자 (마리오파티풍)
-    const rr = fluidPx(dims, 22, { min: 14, max: 30 });
-    ctx.fillStyle = "rgba(29,43,77,0.28)";
-    ctx.beginPath(); ctx.roundRect(cx - cardW / 2 + 4, cy - cardH / 2 + 7, cardW, cardH, rr); ctx.fill();
-    ctx.fillStyle = "#fff8e7";
-    ctx.beginPath(); ctx.roundRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, rr); ctx.fill();
-    ctx.strokeStyle = "#1d2b4d"; ctx.lineWidth = fluidPx(dims, 5, { min: 3, max: 7 }); ctx.stroke();
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, rr); ctx.clip();
-    ctx.fillStyle = "rgba(255,255,255,0.6)";
-    ctx.fillRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH * 0.34);
-    ctx.restore();
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.font = `900 ${fluidPx(dims, 44)}px sans-serif`;
-    ctx.fillStyle = "#1d2b4d";
-    ctx.fillText(card.val, cx, cy);
-    ctx.restore();
-  });
 
+  // 판정을 그리기보다 먼저 해야, 짚은 그 프레임부터 눌림 애니메이션이 보인다.
   // 손가락이 카드 위에 "새로 들어왔을 때"만 탭으로 인정(계속 올려두면 반복 판정되던 버그 수정)
-  let overAnyCardNow = false;
-  let enteredCard = null;
+  let overAnyCardNow = false, enteredCard = null, enteredIdx = -1;
+  const overIdx = [false, false];
   for (const c of cursors) {
     cards.forEach((card, i) => {
       const { x: cx, y: cy } = cardPos[i];
       if (Math.abs(c.x - cx) < cardW / 2 && Math.abs(c.y - cy) < cardH / 2) {
+        overIdx[i] = true;
         overAnyCardNow = true;
-        if (!enteredCard) enteredCard = card;
+        if (!enteredCard) { enteredCard = card; enteredIdx = i; }
       }
     });
   }
-  if (!resolving && overAnyCardNow && !overAnyCardPrev) answerTapped(enteredCard);
+  for (let i = 0; i < cardFx.length; i++) {
+    cardFx[i].hover += ((overIdx[i] ? 1 : 0) - cardFx[i].hover) * 0.25; // 부드럽게 떠오르고 가라앉게
+  }
+  if (!resolving && overAnyCardNow && !overAnyCardPrev) {
+    cardFx[enteredIdx].pressAt = performance.now();
+    cardFx[enteredIdx].result = enteredCard.correct ? "correct" : "wrong";
+    if (!isMuted()) sound.click();
+    answerTapped(enteredCard);
+  }
   overAnyCardPrev = overAnyCardNow;
+
+  const nowMs = performance.now();
+  const rr = fluidPx(dims, 22, { min: 14, max: 30 });
+  cards.forEach((card, i) => {
+    const { x: cx, y: cy } = cardPos[i];
+    const fx = cardFx[i];
+    const t = fx.pressAt ? (nowMs - fx.pressAt) / PRESS_MS : -1;
+    const active = t >= 0 && t <= 1;
+    const depth = active ? pressDepth(t) : 0;
+    const hover = fx.hover;
+    const lift = hover * cardH * 0.05;            // 손이 닿으면 살짝 떠오름
+    const sink = depth * cardH * 0.10;            // 짚으면 아래로 쑥
+    const scale = 1 - depth * 0.08 + hover * 0.02;
+    const shadowY = (7 + hover * 5) * (1 - depth * 0.9);
+    const shake = active && fx.result === "wrong" ? Math.sin(t * Math.PI * 8) * (1 - t) * cardW * 0.05 : 0;
+
+    ctx.save();
+    ctx.translate(cx + shake, cy - lift + sink);
+    ctx.scale(scale, scale);
+    // 캔디 카드: 크림 바탕 + 굵은 남색 테두리 + 그림자 (마리오파티풍)
+    // 눌리면 그림자가 카드에 붙으며 얕아져서 "내려앉은" 느낌이 난다
+    ctx.fillStyle = `rgba(29,43,77,${(0.28 * (1 - depth * 0.6)).toFixed(3)})`;
+    ctx.beginPath(); ctx.roundRect(-cardW / 2 + 4, -cardH / 2 + shadowY, cardW, cardH, rr); ctx.fill();
+    ctx.fillStyle = "#fff8e7";
+    ctx.beginPath(); ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, rr); ctx.fill();
+    if (active && fx.result) {                    // 정답은 초록, 오답은 빨강이 번졌다 사라진다
+      ctx.save();
+      ctx.globalAlpha = (1 - t) * 0.55;
+      ctx.fillStyle = fx.result === "correct" ? "#3ddc84" : "#ef476f";
+      ctx.beginPath(); ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, rr); ctx.fill();
+      ctx.restore();
+    }
+    ctx.strokeStyle = hover > 0.5 ? "#ff9f1c" : "#1d2b4d";
+    ctx.lineWidth = fluidPx(dims, 5, { min: 3, max: 7 }) + hover * 1.5;
+    ctx.beginPath(); ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, rr); ctx.stroke();
+    ctx.save();                                   // 위쪽 유광 — 눌리면 줄어들어 들어간 것처럼 보인다
+    ctx.beginPath(); ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, rr); ctx.clip();
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.fillRect(-cardW / 2, -cardH / 2, cardW, cardH * 0.34 * (1 - depth * 0.7));
+    ctx.restore();
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = `900 ${fluidPx(dims, 44)}px sans-serif`;
+    ctx.fillStyle = "#1d2b4d";
+    ctx.fillText(card.val, 0, 0);
+    ctx.restore();
+
+    // 누른 자리에서 바깥으로 퍼져 나가는 링
+    if (active) {
+      ctx.save();
+      ctx.globalAlpha = (1 - t) * 0.6;
+      ctx.strokeStyle = fx.result === "correct" ? "#3ddc84" : "#ef476f";
+      ctx.lineWidth = fluidPx(dims, 6, { min: 3, max: 9 }) * (1 - t);
+      ctx.beginPath();
+      ctx.roundRect(cx - cardW / 2 - t * cardW * 0.22, cy - cardH / 2 - t * cardH * 0.30,
+        cardW * (1 + t * 0.44), cardH * (1 + t * 0.60), rr + t * 20);
+      ctx.stroke();
+      ctx.restore();
+    }
+  });
 
   // 1인칭 시점: 내 발 아래 스키 두 짝. 게이지가 찰수록 더 심하게 진동하고 V자로 벌어진다.
   drawFirstPersonSkis(ctx, w, h, {
