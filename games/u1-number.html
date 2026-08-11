@@ -155,6 +155,7 @@ const holdFill = document.getElementById("holdFill");
 const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, gate, count, combo, maxCombo, playEndAt, skaterX;
+let lastTs = 0; // 프레임 간 실제 경과시간(초)을 재기 위한 이전 타임스탬프
 let missFlashUntil = 0, missWobbleUntil = 0;
 let particles = [], popups = [], bigPopups = [], confetti = [];
 const shake = new ScreenShake();
@@ -483,17 +484,22 @@ function drawBladeTrails(ctx, w, h, centerX, vanishY) {
 function loop(tsMs) {
   requestAnimationFrame(loop);
   if (mode === "motion" && video.readyState < 2) return;
+  // 실제 경과시간으로 dt를 계산 — 90/120Hz 화면(대부분의 최신 모바일)에서는 rAF가 그만큼 더 자주
+  // 불리므로, 고정 1/60을 쓰면 게임이 그 배율만큼 빨라진다. 탭 전환 등으로 큰 공백이 생겨도
+  // 한 번에 확 점프하지 않도록 30ms(약 1/33초)로 위쪽을 잘라준다.
+  const dt = lastTs ? Math.min(0.03, Math.max(0, (tsMs - lastTs) / 1000)) : 1 / 60;
+  lastTs = tsMs;
   const { ctx, w, h } = dims;
   ctx.save();
   shake.apply(ctx);
   if (mode === "motion") drawMirroredVideo(ctx, video, w, h);
   else drawFallbackBackground(ctx, w, h);
   if (state === "playing") {
-    drawForwardTrack(ctx, w, h, trackState, 1 / 60, {
+    drawForwardTrack(ctx, w, h, trackState, dt, {
       speed: bgSpeedMul, vanishY: h * 0.34,
       railColor: "rgba(70,130,190,0.32)", tieColor: "rgba(70,130,190,0.3)",
     });
-    drawSpeedLines(ctx, w, h, speedLines, 1 / 60, {
+    drawSpeedLines(ctx, w, h, speedLines, dt, {
       vy: h * 0.34, intensity: Math.min(1.2, 0.25 + (bgSpeedMul - 1) * 0.75),
       color: "rgba(230,246,255,0.9)",
     });
@@ -514,7 +520,7 @@ function loop(tsMs) {
 
   const leanSide = state === "playing" ? currentLeanSide(angleDeg) : null;
 
-  if (state === "playing") stepGame(tsMs, leanSide);
+  if (state === "playing") stepGame(tsMs, leanSide, dt);
 
   ctx.restore();
 }
@@ -530,7 +536,7 @@ function goReady() {
   }, 500);
 }
 
-function stepGame(tsMs, leanSide) {
+function stepGame(tsMs, leanSide, dt) {
   const { ctx, w, h } = dims;
   const remain = Math.max(0, playEndAt - performance.now());
   if (remain <= 0) { endGame(); return; }
@@ -540,7 +546,7 @@ function stepGame(tsMs, leanSide) {
   const elapsedSec = 60 - remain / 1000;
   const rampMul = Math.min(2.2, 1 + elapsedSec * 0.022); // 시간이 지날수록 점점 빨라짐(최대 2.2배)
   bgSpeedMul = rampMul;
-  gate.yFrac += speedForLevel(autoDiff.level) * rampMul * (1 / 60);
+  gate.yFrac += speedForLevel(autoDiff.level) * rampMul * dt;
   const gy = gate.yFrac * h;
 
   if (!gate.judged && gy >= bandTop) {
@@ -599,8 +605,8 @@ function stepGame(tsMs, leanSide) {
   const splay = wobbling ? 0.30 + Math.sin(now2 * 0.045) * 0.12 : 0;
   drawBladeTrails(ctx, w, h, skaterX, h * 0.34);
   drawFirstPersonSkates(ctx, w, h, skaterX, tilt, splay);
-  // 날 뒤로 튀는 눈가루 — 빠를수록 더 많이 튄다
-  if (Math.random() < 0.35 + bgSpeedMul * 0.2) {
+  // 날 뒤로 튀는 눈가루 — 빠를수록 더 많이 튄다 (프레임마다가 아니라 시간당 확률이 되도록 dt로 정규화)
+  if (Math.random() < (0.35 + bgSpeedMul * 0.2) * (dt / (1 / 60))) {
     const m = skateMetrics(w, h);
     spawnParticles(particles, skaterX + (Math.random() < 0.5 ? -1 : 1) * m.spread * 0.5, m.baseY - m.len * 0.3, {
       count: 1, colors: ["#ffffff", "#dff1fb"], speed: 150, life: 420, size: 3,
@@ -615,13 +621,13 @@ function stepGame(tsMs, leanSide) {
     ctx.restore();
   }
 
-  particles = updateParticles(particles, 1 / 60);
+  particles = updateParticles(particles, dt);
   drawParticles(ctx, particles);
-  confetti = updateConfetti(confetti, 1 / 60);
+  confetti = updateConfetti(confetti, dt);
   drawConfetti(ctx, confetti);
-  popups = updatePopups(popups, 1 / 60);
+  popups = updatePopups(popups, dt);
   drawPopups(ctx, popups);
-  bigPopups = updateBigPopups(bigPopups, 1 / 60);
+  bigPopups = updateBigPopups(bigPopups, dt);
   drawBigPopups(ctx, bigPopups);
 
   drawVignette(ctx, w, h, 0.18);
