@@ -258,7 +258,33 @@ body.landing .help-modal{background:#fffdf7ee;border-color:#ffd166;}
   color:var(--text);font-weight:700;padding:clamp(10px, 1.8vh, 14px) clamp(16px, 3vw, 28px);
   min-height:var(--tap);
 }
-.countdown-num{font-size:clamp(4rem, 16vmin, 8rem);font-weight:900;color:var(--accent);text-shadow:0 8px 20px #000;}
+/* 3·2·1이 튀어오르듯 나오도록: 숫자가 바뀔 때마다 JS가 .pop 클래스를 지웠다 다시 붙여
+   아래 애니메이션을 처음부터 재생시킨다(단순히 계속 도는 pulse보다 각 숫자 등장에 딱 맞게 반응함) */
+.countdown-num{
+  position:relative;display:inline-block;
+  font-size:clamp(4rem, 16vmin, 8rem);font-weight:900;color:var(--accent);
+  -webkit-text-stroke:3px #1d2b4d;
+  text-shadow:
+    -3px -3px 0 #fff, 3px -3px 0 #fff, -3px 3px 0 #fff, 3px 3px 0 #fff,
+    0 8px 0 #00000030, 0 16px 26px #00000060;
+  transform:scale(0);
+}
+.countdown-num.pop{animation:countPop .6s cubic-bezier(.34,1.8,.64,1) both;}
+.countdown-num.pop::after{
+  content:"";position:absolute;left:50%;top:50%;width:1em;height:1em;border-radius:50%;
+  border:5px solid currentColor;transform:translate(-50%,-50%) scale(.4);opacity:.85;
+  animation:countRing .6s ease-out both;pointer-events:none;
+}
+@keyframes countPop{
+  0%{transform:scale(.2) rotate(-14deg);opacity:0;}
+  55%{transform:scale(1.28) rotate(7deg);opacity:1;}
+  75%{transform:scale(.9) rotate(-4deg);}
+  100%{transform:scale(1) rotate(0deg);}
+}
+@keyframes countRing{
+  0%{transform:translate(-50%,-50%) scale(.4);opacity:.85;}
+  100%{transform:translate(-50%,-50%) scale(2.4);opacity:0;}
+}
 
 /* ---------- 손 들기 시작 시퀀스 ---------- */
 .raise-icon{font-size:clamp(2.6rem, 10vmin, 4.5rem);}

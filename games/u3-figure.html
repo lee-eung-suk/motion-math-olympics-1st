@@ -242,12 +242,23 @@ function resetBoard() {
   pickTargetShape();
 }
 
+// 숫자마다 새로 튀어오르도록: 클래스를 지웠다가 강제 리플로우 후 다시 붙여 countPop 애니메이션을
+// 처음부터 재생시킨다. 3→2→1로 색도 바뀌어(파랑→노랑→빨강) 갈수록 긴장감이 올라가는 느낌을 준다.
+const COUNT_COLORS = { 3: "#4cc9f0", 2: "#ffd166", 1: "#ff5d5d" };
+function popCountNum(numEl, n) {
+  numEl.textContent = n;
+  numEl.style.color = COUNT_COLORS[n] || "#ffd166";
+  numEl.classList.remove("pop");
+  void numEl.offsetWidth;
+  numEl.classList.add("pop");
+}
+
 function startCountdown() {
   state = "countdown";
   document.getElementById("countdownPanel").style.display = "flex";
   const numEl = document.getElementById("countNum");
   let n = 3;
-  numEl.textContent = n;
+  popCountNum(numEl, n);
   if (!isMuted()) sound.countBeep();
   const iv = setInterval(() => {
     n--;
@@ -257,7 +268,7 @@ function startCountdown() {
       if (!isMuted()) sound.go();
       beginPlay();
     } else {
-      numEl.textContent = n;
+      popCountNum(numEl, n);
       if (!isMuted()) sound.countBeep();
     }
   }, 700);
