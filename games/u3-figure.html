@@ -228,12 +228,24 @@ function makeTile(forceKey) {
   };
 }
 
+// 목표 모양이 전체 조각의 절반 이상은 되도록 — 예전엔 "최소 2개"만 보장해서 7개 중 2개(29%)뿐인
+// 경우가 흔했고, 그러면 화면을 한참 훑어야 겨우 찾는 느낌이라 "너무 적다"는 피드백으로 이어졌다.
+function targetCountFor() { return Math.max(2, Math.ceil(tiles.length * 0.55)); }
+
 function pickTargetShape() {
   targetShape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
   targetSwitchAt = performance.now() + cfg.targetEvery;
-  // 목표 도형이 화면에 최소 2개는 있도록 보장
-  const have = tiles.filter((t) => !t.dead && t.key === targetShape.key).length;
-  for (let i = 0; have + i < 2 && i < tiles.length; i++) tiles[i] = makeTile(targetShape.key);
+  const want = targetCountFor();
+  const nonTargetIdx = [];
+  let have = 0;
+  tiles.forEach((t, i) => { if (t.dead) return; if (t.key === targetShape.key) have++; else nonTargetIdx.push(i); });
+  for (let i = nonTargetIdx.length - 1; i > 0; i--) { // 무작위로 몇 개를 목표 모양으로 바꿀지 섞는다
+    const j = Math.floor(Math.random() * (i + 1));
+    [nonTargetIdx[i], nonTargetIdx[j]] = [nonTargetIdx[j], nonTargetIdx[i]];
+  }
+  for (let i = 0; have < want && i < nonTargetIdx.length; i++, have++) {
+    tiles[nonTargetIdx[i]] = makeTile(targetShape.key);
+  }
 }
 
 function resetBoard() {
@@ -318,7 +330,14 @@ function collectTile(tile, idx) {
     spawnBigPopup(bigPopups, dims.w / 2, dims.h * 0.3, `🏅 ${score}점!`, "#ffd166");
     if (!isMuted()) sound.fever();
   }
-  setTimeout(() => { if (state === "playing" && tiles[idx]) tiles[idx] = makeTile(); }, 220);
+  // 방금 수집한 자리는 다시 무작위로 태어나던 것을, 목표 모양 개수가 기준보다 부족해지면
+  // 새로 태어나는 조각도 목표 모양으로 우선 채워 화면의 목표 모양 밀도가 유지되게 한다
+  setTimeout(() => {
+    if (state !== "playing" || !tiles[idx]) return;
+    const want = targetCountFor();
+    const have = tiles.filter((t, j) => j !== idx && !t.dead && t.key === targetShape.key).length;
+    tiles[idx] = makeTile(have < want ? targetShape.key : undefined);
+  }, 220);
 }
 
 function missTile(tile) {

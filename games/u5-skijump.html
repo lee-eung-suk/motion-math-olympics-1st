@@ -172,6 +172,7 @@ const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, combo, maxCombo, playEndAt;
 let phase = "run"; // "run" | "takeoff" (비행 중일 땐 flightPhase로 별도 판정)
+let pendingTakeoff = false; // 게이지가 찬 순간부터 takeoff로 실제 전환되기 전까지의 짧은 대기(연출용 350ms) 구간
 let runNeeded = 3, runCorrect = 0, question, cardLeft, cardRight, resolving = false;
 let takeoffStartAt = 0, wasBothRaised = false, overAnyCardPrev = false;
 let flightPhase = null;
@@ -423,7 +424,15 @@ function answerTapped(card) {
     shake.trigger(3, 90);
     if (!isMuted()) { sound.correct(); if (combo === 3) sound.comboUp(); }
     if (runCorrect >= runNeeded) {
-      setTimeout(() => { if (state === "playing") { phase = "takeoff"; takeoffStartAt = performance.now(); wasBothRaised = false; } }, 350);
+      // 게이지가 찬 그 순간부터 실제로 도약 화면이 뜨기까지 350ms 텀이 있는데, 이 사이에 60초
+      // 라운드 타이머가 0에 닿으면 stepGame이 곧장 endGame()을 불러 도약 화면이 통째로 스킵되곤
+      // 했다. pendingTakeoff가 켜져 있는 동안은 라운드가 끝나지 않도록 막아, 게이지를 채웠으면
+      // 반드시 도약 타이밍 화면을 보게 한다.
+      pendingTakeoff = true;
+      setTimeout(() => {
+        pendingTakeoff = false;
+        if (state === "playing") { phase = "takeoff"; takeoffStartAt = performance.now(); wasBothRaised = false; }
+      }, 350);
       return;
     }
   } else {
@@ -801,7 +810,9 @@ function stepTakeoffPhase(ctx, w, h, result) {
 function stepGame(tsMs, cursors, result) {
   const { ctx, w, h } = dims;
   const remain = Math.max(0, playEndAt - performance.now());
-  if (remain <= 0 && !flightPhase) { endGame(); return; }
+  // 도약(takeoff) 화면을 보여주는 도중이나 그 직전(pendingTakeoff)에 60초가 다 되어도 라운드를
+  // 끝내지 않는다 — 게이지를 다 채웠으면 반드시 점프 타이밍을 눌러볼 기회를 준 뒤에 끝나야 한다.
+  if (remain <= 0 && !flightPhase && phase !== "takeoff" && !pendingTakeoff) { endGame(); return; }
 
   if (flightPhase) { stepFlightPhase(); return; }
 
