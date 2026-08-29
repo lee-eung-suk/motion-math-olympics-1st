@@ -101,10 +101,12 @@ img{max-width:100%;height:auto;}
   overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
 }
 
-/* 중단: 썸네일 이미지 — object-fit:contain으로 잘림 없이 전체가 보이도록 */
+/* 중단: 썸네일 이미지 — object-fit:contain으로 잘림 없이 전체가 보이도록.
+   테두리선 대신 안쪽으로 파인 느낌의 음각 그림자만 둬서 카드와 겉돌지 않게 한다 */
 .card-thumb{
   flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
-  background:#ffffff0a;border-radius:14px;overflow:hidden;padding:4px;
+  background:#ffffff0a;border:none;border-radius:14px;overflow:hidden;padding:4px;
+  box-shadow:inset 0 2px 6px rgba(0,0,0,0.1);
 }
 .card-thumb img{width:100%;height:100%;object-fit:contain;display:block;}
 /* 썸네일 PNG가 아직 없을 때(추후 제작 예정) 자동 대체되는 이모지 플레이스홀더 */
@@ -417,7 +419,14 @@ body.landing .card:active{transform:translateY(3px) scale(0.98);}
 body.landing .card-badge{background:#00000010;color:#5a5a5a;font-weight:700;}
 body.landing .card-subject{color:#8a8a8a;}
 body.landing .card-name{color:#3a3a3a;}
-body.landing .card-thumb{background:#00000008;}
+/* 썸네일 배경을 각 카드 고유 색의 10% 톤으로 깔아 카드와 한 몸처럼 보이게 함(무채색 회색 대신) */
+body.landing .card-thumb{background:#00000008;box-shadow:inset 0 2px 6px rgba(0,0,0,0.1);}
+body.landing .card:nth-child(6n+1) .card-thumb{background:#ff6b6b1a;}
+body.landing .card:nth-child(6n+2) .card-thumb{background:#4dabf71a;}
+body.landing .card:nth-child(6n+3) .card-thumb{background:#51cf661a;}
+body.landing .card:nth-child(6n+4) .card-thumb{background:#ffa94d1a;}
+body.landing .card:nth-child(6n+5) .card-thumb{background:#da77f21a;}
+body.landing .card:nth-child(6n+6) .card-thumb{background:#3bc9db1a;}
 body.landing .card-foot{background:#fff3d6;color:#e8720c;}
 
 body.landing .start-cta-row{padding:14px 0 6px;}
