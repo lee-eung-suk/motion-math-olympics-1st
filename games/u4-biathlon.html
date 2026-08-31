@@ -39,6 +39,7 @@
   <div class="overlay-panel" id="resultPanel" style="display:none">
     <h2 id="resultTitle">결과</h2>
     <div class="medal" id="resultMedal">🥉</div>
+    <img class="result-char" src="../assets/char_victory.png" alt="">
     <div class="result-stats">
       <div class="stat-box"><div class="num" id="statCount">0개</div><div class="label">기록</div></div>
       <div class="stat-box"><div class="num" id="statBest">0개</div><div class="label">최고 기록</div></div>
@@ -150,7 +151,7 @@ async function init() {
     pointerInput = new PointerInput(canvas);
   }
   document.getElementById("loadingPanel").style.display = "none";
-  document.getElementById("raiseIcon").textContent = mode === "motion" ? "🙋" : "👆";
+  document.getElementById("raiseIcon").innerHTML = mode === "motion" ? '<img src="../assets/char_cheer.png" alt="">' : "👆";
   document.getElementById("raiseText").textContent = mode === "motion" ? "손을 들어 주세요!" : "화면을 터치(클릭)하면 시작!";
   document.getElementById("raisePanel").style.display = "flex";
   state = "raise";

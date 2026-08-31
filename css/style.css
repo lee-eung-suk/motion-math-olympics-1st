@@ -290,6 +290,8 @@ body.landing .help-modal{background:#fffdf7ee;border-color:#ffd166;}
 
 /* ---------- 손 들기 시작 시퀀스 ---------- */
 .raise-icon{font-size:clamp(2.6rem, 10vmin, 4.5rem);}
+/* 모션모드에서는 이모지 대신 우리반 캐릭터가 손을 들고 응원하는 그림으로 안내 */
+.raise-icon img{display:block;max-height:clamp(90px, 22vmin, 160px);width:auto;filter:drop-shadow(0 6px 10px #00000040);}
 .hold-bar{
   width:clamp(180px, 40vw, 260px);height:14px;border-radius:8px;background:#ffffff22;
   overflow:hidden;border:2px solid #ffffff33;
@@ -311,6 +313,11 @@ body.landing .help-modal{background:#fffdf7ee;border-color:#ffd166;}
 .stat-box .num{font-size:clamp(1.3rem, 1.6vw + 0.8rem, 1.8rem);font-weight:800;color:var(--accent);}
 .stat-box .label{font-size:clamp(0.7rem, 0.6vw + 0.5rem, 0.8rem);color:var(--muted);}
 .medal{font-size:clamp(2.8rem, 10vmin, 4rem);}
+/* 결과 화면의 우리반 캐릭터 — 메달 색은 그대로 이모지로 알아보고, 캐릭터는 승리를 함께 즐기는 느낌만 더함 */
+.result-char{max-height:clamp(80px, 18vmin, 140px);width:auto;display:block;margin:0 auto;filter:drop-shadow(0 6px 10px #00000040);}
+@media (max-height:440px){
+  .result-char{display:none;} /* 화면이 낮을 때는 통계·버튼이 잘리지 않도록 캐릭터를 생략 */
+}
 .action-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;}
 video.preview{max-width:min(280px, 70vw);width:100%;border-radius:16px;border:2px solid #ffffff30;}
 
