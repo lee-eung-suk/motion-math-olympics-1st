@@ -47,6 +47,12 @@ img{max-width:100%;height:auto;}
   display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
   gap:8px;margin-bottom:clamp(6px, 1.5vh, 14px);
 }
+.title-block{display:flex;align-items:center;gap:clamp(6px, 1.5vw, 14px);}
+/* 타이틀 옆 우리반 캐릭터 — 화면이 낮을 땐 카드 영역을 우선해 숨김 */
+.mascot-hero{height:clamp(70px, 17vh, 150px);width:auto;display:block;filter:drop-shadow(0 4px 8px #00000040);}
+@media (max-height:440px){
+  .mascot-hero{display:none;}
+}
 .menu-header h1{
   font-size:clamp(1.2rem, 1.6vw + 1rem, 1.9rem);margin:0;display:flex;align-items:center;gap:10px;
   font-weight:900;letter-spacing:0.5px;
