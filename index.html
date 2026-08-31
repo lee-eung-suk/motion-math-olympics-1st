@@ -80,12 +80,12 @@ const bgm = new FileAudioLoop("assets/sounds/bgm.mp3", 0.35);
 if (!isMuted()) bgm.play(showSoundHint);
 
 const UNITS = [
-  { id: "u1", emoji: "⛸️", title: "종목 1", sub: "100까지의 수", name: "목을 좌우로! 스케이트", href: "games/u1-number.html", thumb: "assets/char_u1_skate.png" },
-  { id: "u2", emoji: "🥌", title: "종목 2", sub: "덧셈과 뺄셈(1)", name: "스톤을 굴려 10만들기 컬링", href: "games/u2-curling.html", thumb: "assets/char_u2_curling.png" },
-  { id: "u3", emoji: "👑", title: "종목 3", sub: "모양과 시각", name: "피겨 여왕의 모양 연기", href: "games/u3-figure.html", thumb: "assets/char_u3_figure.png" },
-  { id: "u4", emoji: "🎯", title: "종목 4", sub: "덧셈과 뺄셈(2)", name: "타겟 탕탕! 덧뺄셈 바이애슬론", href: "games/u4-biathlon.html", thumb: "assets/char_u4_biathlon.png" },
-  { id: "u5", emoji: "🛷", title: "종목 5", sub: "규칙 찾기", name: "규칙 타고 멀리 스키점프", href: "games/u5-skijump.html", thumb: "assets/char_u5_skijump.png" },
-  { id: "u6", emoji: "🏒", title: "종목 6", sub: "덧셈과 뺄셈(3)", name: "슛~골인! 아이스하키", href: "games/u6-hockey.html", thumb: "assets/char_u6_hockey.png" },
+  { id: "u1", emoji: "⛸️", title: "종목 1", sub: "100까지의 수", name: "목을 좌우로! 스케이트", href: "games/u1-number.html", thumb: "assets/1.png" },
+  { id: "u2", emoji: "🥌", title: "종목 2", sub: "덧셈과 뺄셈(1)", name: "스톤을 굴려 10만들기 컬링", href: "games/u2-curling.html", thumb: "assets/2.png" },
+  { id: "u3", emoji: "👑", title: "종목 3", sub: "모양과 시각", name: "피겨 여왕의 모양 연기", href: "games/u3-figure.html", thumb: "assets/3.png" },
+  { id: "u4", emoji: "🎯", title: "종목 4", sub: "덧셈과 뺄셈(2)", name: "타겟 탕탕! 덧뺄셈 바이애슬론", href: "games/u4-biathlon.html", thumb: "assets/4.png" },
+  { id: "u5", emoji: "🛷", title: "종목 5", sub: "규칙 찾기", name: "규칙 타고 멀리 스키점프", href: "games/u5-skijump.html", thumb: "assets/5.png" },
+  { id: "u6", emoji: "🏒", title: "종목 6", sub: "덧셈과 뺄셈(3)", name: "슛~골인! 아이스하키", href: "games/u6-hockey.html", thumb: "assets/6.png" },
 ];
 
 function goToGame(href) { bgm.stop(); location.href = href; }
