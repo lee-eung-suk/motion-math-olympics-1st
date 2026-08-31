@@ -120,8 +120,10 @@ function buildGoalValues(answer, n) {
 const handTracker = new HandTracker();
 let pointerInput = null;
 let goalImg = null;
+let goalieImg = null;
 const puckImgs = [];
 loadImage("../assets/goal.png").then((img) => { goalImg = img; }).catch(() => {});
+loadImage("../assets/char_u6_goalie.png").then((img) => { goalieImg = img; }).catch(() => {});
 ["ball1.png", "ball2.png", "ball3.png", "ball4.png"].forEach((f, i) => {
   loadImage(`../assets/${f}`).then((img) => { puckImgs[i] = img; }).catch(() => {});
 });
@@ -353,6 +355,13 @@ function loop(tsMs) {
   if (mode === "motion") drawMirroredVideo(ctx, video, w, h);
   else drawFallbackBackground(ctx, w, h);
   if (state === "playing") drawRinkBackground(ctx, w, h);
+  // 골대 여러 개 중 하나만 지키는 것처럼 보이면 헷갈리니, 특정 골대 앞이 아니라
+  // 링크 옆쪽에 응원하는 골키퍼로 장식만 해둔다(실제 판정에는 관여하지 않음)
+  if (state === "playing" && goalieImg) {
+    const gh = fluidPx(dims, 130, { min: 90, max: 170 });
+    const gw = gh * (goalieImg.naturalWidth / goalieImg.naturalHeight);
+    ctx.drawImage(goalieImg, w * 0.06, h * 0.68 - gh, gw, gh);
+  }
 
   let result = null;
   if (mode === "motion") {

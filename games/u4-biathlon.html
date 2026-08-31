@@ -59,7 +59,7 @@
 import {
   HighScore, requestWakeLock, SoundKit, FileAudioLoop,
   HandTracker, ClipRecorder, snapshotCanvas, downloadBlob,
-  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
+  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors, loadImage,
   AutoDifficulty, drawLevelBadge, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
   ScreenShake, spawnParticles, updateParticles, drawParticles,
@@ -134,6 +134,8 @@ function stationPositions(w, h, n) {
 
 const handTracker = new HandTracker();
 let pointerInput = null;
+let aimIconImg = null;
+loadImage("../assets/char_u4_aim_icon.png").then((img) => { aimIconImg = img; }).catch(() => {});
 
 async function init() {
   if (!isMuted()) bgm.play(showSoundHint);
@@ -420,12 +422,21 @@ function loop(tsMs) {
 
   if (state === "playing") stepGame(tsMs);
 
+  // 조준 커서: 우리반 캐릭터가 한쪽 눈을 찡그리고 조준하는 원형 아이콘으로(기본 초록 원은 폴백)
+  const aimR = fluidPx(dims, 26, { min: 20, max: 36 });
   for (const c of cursors) {
-    ctx.beginPath();
-    ctx.arc(c.x, c.y, 16, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(6,214,160,0.55)";
-    ctx.fill();
-    ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke();
+    if (aimIconImg) {
+      ctx.save();
+      ctx.beginPath(); ctx.arc(c.x, c.y, aimR, 0, Math.PI * 2); ctx.clip();
+      ctx.drawImage(aimIconImg, c.x - aimR, c.y - aimR, aimR * 2, aimR * 2);
+      ctx.restore();
+    } else {
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 16, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(6,214,160,0.55)";
+      ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke();
+    }
   }
   ctx.restore();
 }
