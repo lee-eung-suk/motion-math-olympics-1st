@@ -125,6 +125,9 @@ const handTracker = new HandTracker();
 const faceTracker = new FaceTracker();
 let pointerInput = null;
 let helmetImg = null;
+let charImg = null;
+loadImage("../assets/char_u1_skate.png").then((img) => { charImg = img; }).catch(() => {});
+let charIntroUntil = 0; // 카운트다운이 끝나고 1인칭으로 넘어가기 직전, 캐릭터가 잠깐 커졌다 사라지는 연출
 loadImage("../assets/cap.png").then((img) => { helmetImg = img; }).catch(() => {});
 
 async function init() {
@@ -205,6 +208,7 @@ function beginPlay() {
   particles = []; popups = []; bigPopups = [];
   skaterX = dims.w / 2;
   playEndAt = performance.now() + 60000;
+  charIntroUntil = performance.now() + 500;
   newGate();
 
   recorder = new ClipRecorder(canvas, sound, 24);
@@ -535,6 +539,22 @@ function loop(tsMs) {
   if (state === "playing") stepGame(tsMs, leanSide, dt);
 
   ctx.restore();
+
+  // 카운트다운이 끝난 순간 "내가 이 캐릭터가 되어 달린다"는 연결고리를 주는 짧은 등장 컷.
+  // 1인칭 발만 보이는 플레이 화면 정중앙에 얼굴 있는 캐릭터를 계속 두면 몰입이 깨지므로,
+  // 시작 직후 0.5초만 크게 보여주고 빠르게 사라지게 한다(입력 판정에는 영향 없음).
+  if (charImg && performance.now() < charIntroUntil) {
+    const now3 = performance.now();
+    const p = 1 - (charIntroUntil - now3) / 500;
+    const scale = p < 0.4 ? p / 0.4 : 1;
+    const alpha = p > 0.7 ? Math.max(0, 1 - (p - 0.7) / 0.3) : 1;
+    const ch = Math.min(h * 0.5, w * 0.5) * scale;
+    const cw = ch * (charImg.naturalWidth / charImg.naturalHeight);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(charImg, w / 2 - cw / 2, h / 2 - ch / 2, cw, ch);
+    ctx.restore();
+  }
 }
 
 function goReady() {

@@ -124,6 +124,8 @@ let goalieImg = null;
 const puckImgs = [];
 loadImage("../assets/goal.png").then((img) => { goalImg = img; }).catch(() => {});
 loadImage("../assets/char_u6_goalie.png").then((img) => { goalieImg = img; }).catch(() => {});
+let charHockeyImg = null;
+loadImage("../assets/char_u6_hockey.png").then((img) => { charHockeyImg = img; }).catch(() => {});
 ["ball1.png", "ball2.png", "ball3.png", "ball4.png"].forEach((f, i) => {
   loadImage(`../assets/${f}`).then((img) => { puckImgs[i] = img; }).catch(() => {});
 });
@@ -499,6 +501,14 @@ function stepGame(tsMs, grip) {
         throwPuckTo(best);
       }
     }
+  }
+
+  // 퍽 홈 자리 뒤에 슈터를 세워 "내가 퍽을 던진다"는 느낌을 준다(퍽보다 먼저 그려서 뒤에 있는 것처럼 보이게)
+  if (charHockeyImg) {
+    const home = puckBase();
+    const sh = Math.min(h * 0.3, w * 0.34);
+    const sw = sh * (charHockeyImg.naturalWidth / charHockeyImg.naturalHeight);
+    ctx.drawImage(charHockeyImg, home.x - sw / 2, home.y - sh * 0.55, sw, sh);
   }
 
   // 퍽

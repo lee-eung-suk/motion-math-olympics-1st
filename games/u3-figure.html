@@ -106,6 +106,8 @@ function levelConfig(level) {
 const handTracker = new HandTracker();
 let pointerInput = null;
 let glovesImg = null;
+let charImg = null;
+loadImage("../assets/char_u3_figure.png").then((img) => { charImg = img; }).catch(() => {});
 loadImage("../assets/char_u3_glove_tip.png").then((img) => { glovesImg = img; }).catch(() => {});
 
 async function init() {
@@ -185,31 +187,26 @@ function drawRibbon(ctx, pts, color, maxWidth) {
   ctx.restore();
 }
 
-// 피겨 스케이터 실루엣(아라베스크 자세) — spin이 주어지면 세로축 회전을 가로 스케일로 흉내 낸다
+// 피겨 스케이터 — 우리반 캐릭터 이미지로 그린다. 손그림 스틱피겨였을 때는 spin을
+// 가로 스케일 반전으로 흉내냈지만, 얼굴이 있는 실제 그림에 그대로 쓰면 좌우가 홱
+// 뒤집혀 보여 어색하다. 대신 통통 튀어오르며(hop) 커졌다 작아지고(pop) 살짝
+// 까딱거리는(wobble) 축하 모션으로 바꿨다.
 function drawFigureSkater(ctx, x, y, size, lean, spin) {
-  const s = size / 100;
-  ctx.save();
-  ctx.translate(x, y);
+  if (!charImg) return;
+  let hop = 0, wobble = 0, pop = 1;
   if (spin != null) {
-    const c = Math.cos(spin);
-    ctx.scale(c >= 0 ? Math.max(0.25, c) : -Math.max(0.25, -c), 1);
+    const p = Math.min(1, spin / (Math.PI * 6));
+    pop = 1 + Math.sin(p * Math.PI) * 0.28;
+    hop = -Math.sin(p * Math.PI) * size * 0.18;
+    wobble = Math.sin(p * Math.PI * 5) * 0.18;
   }
-  ctx.rotate(lean);
-  ctx.globalAlpha = 0.94;
-  ctx.lineCap = "round"; ctx.lineJoin = "round";
-  ctx.strokeStyle = "#1d2b4d"; ctx.fillStyle = "#1d2b4d";
-  ctx.lineWidth = 9 * s;
-  ctx.beginPath(); ctx.moveTo(0, -46 * s); ctx.quadraticCurveTo(3 * s, -20 * s, 0, 0); ctx.stroke();              // 지지 다리
-  ctx.beginPath(); ctx.moveTo(0, -46 * s); ctx.quadraticCurveTo(-30 * s, -48 * s, -54 * s, -70 * s); ctx.stroke(); // 뒷다리
-  ctx.beginPath(); ctx.moveTo(0, -46 * s); ctx.lineTo(6 * s, -78 * s); ctx.stroke();                               // 몸통
-  ctx.beginPath(); ctx.moveTo(4 * s, -72 * s); ctx.quadraticCurveTo(28 * s, -82 * s, 44 * s, -98 * s); ctx.stroke();// 앞팔
-  ctx.beginPath(); ctx.moveTo(4 * s, -72 * s); ctx.quadraticCurveTo(-18 * s, -74 * s, -36 * s, -86 * s); ctx.stroke();// 뒷팔
-  ctx.beginPath(); ctx.arc(8 * s, -92 * s, 10 * s, 0, Math.PI * 2); ctx.fill();                                    // 머리
-  ctx.beginPath();                                                                                                  // 치마
-  ctx.moveTo(-15 * s, -42 * s); ctx.lineTo(5 * s, -64 * s); ctx.lineTo(21 * s, -38 * s); ctx.closePath();
-  ctx.fillStyle = "#ef476f"; ctx.fill();
-  ctx.strokeStyle = "#cfe6f5"; ctx.lineWidth = 4 * s;                                                               // 스케이트 날
-  ctx.beginPath(); ctx.moveTo(-9 * s, 2 * s); ctx.lineTo(11 * s, 2 * s); ctx.stroke();
+  const h2 = size;
+  const w2 = h2 * (charImg.naturalWidth / charImg.naturalHeight);
+  ctx.save();
+  ctx.translate(x, y + hop);
+  ctx.rotate(lean + wobble);
+  ctx.scale(pop, pop);
+  ctx.drawImage(charImg, -w2 / 2, -h2, w2, h2);
   ctx.restore();
 }
 

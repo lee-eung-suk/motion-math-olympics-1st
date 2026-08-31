@@ -59,7 +59,7 @@
 import {
   HighScore, requestWakeLock, SoundKit, FileAudioLoop,
   HandTracker, ClipRecorder, snapshotCanvas, downloadBlob,
-  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
+  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors, loadImage,
   AutoDifficulty, drawLevelBadge, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
   ScreenShake, spawnParticles, updateParticles, drawParticles,
@@ -142,6 +142,8 @@ function genQuestion(level) {
 function runNeededForLevel(level) { return level === 1 ? 3 : level === 2 ? 4 : 5; }
 
 const handTracker = new HandTracker();
+let charSkijumpImg = null;
+loadImage("../assets/char_u5_skijump.png").then((img) => { charSkijumpImg = img; }).catch(() => {});
 let pointerInput = null;
 
 async function init() {
@@ -795,6 +797,13 @@ function stepTakeoffPhase(ctx, w, h, result) {
 
   // 도약 대기 중에도 내 스키는 계속 보인다 — 게이지가 가득 차 V자로 활짝 벌어진 활공 자세
   drawFirstPersonSkis(ctx, w, h, { vibrate: 2.2, spread: 1.5 });
+
+  // 1인칭 화면 정중앙을 가리지 않도록, 옆에서 응원하는 크기로만 살짝 배치
+  if (charSkijumpImg) {
+    const ch = h * 0.22;
+    const cw = ch * (charSkijumpImg.naturalWidth / charSkijumpImg.naturalHeight);
+    ctx.drawImage(charSkijumpImg, w * 0.88 - cw / 2, h * 0.72 - ch, cw, ch);
+  }
 
   let triggered = false;
   if (mode === "motion") {

@@ -127,6 +127,8 @@ function roundConfigForLevel(level) {
 const handTracker = new HandTracker();
 let pointerInput = null;
 let stoneImg = null;
+let charImg = null;
+loadImage("../assets/char_u2_curling.png").then((img) => { charImg = img; }).catch(() => {});
 loadImage("../assets/stone.png").then((img) => { stoneImg = img; }).catch(() => {});
 
 async function init() {
@@ -407,6 +409,11 @@ function drawIntro(ctx, w, h) {
   ctx.fillStyle = "#ffd166";
   ctx.font = `bold ${fluidPx(dims, 24)}px sans-serif`;
   ctx.fillText("🥌 빈칸을 채우는 수 자리에 스톤을 굴려요!", w / 2, h * 0.53);
+  if (charImg) {
+    const ch = Math.min(h * 0.32, w * 0.4);
+    const cw = ch * (charImg.naturalWidth / charImg.naturalHeight);
+    ctx.drawImage(charImg, w / 2 - cw / 2, h * 0.58, cw, ch);
+  }
   ctx.restore();
 }
 

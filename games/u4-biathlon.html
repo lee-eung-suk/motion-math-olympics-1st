@@ -136,6 +136,8 @@ const handTracker = new HandTracker();
 let pointerInput = null;
 let aimIconImg = null;
 loadImage("../assets/char_u4_aim_icon.png").then((img) => { aimIconImg = img; }).catch(() => {});
+let charBiathlonImg = null;
+loadImage("../assets/char_u4_biathlon.png").then((img) => { charBiathlonImg = img; }).catch(() => {});
 
 async function init() {
   if (!isMuted()) bgm.play(showSoundHint);
@@ -491,6 +493,14 @@ function stepGame(tsMs) {
     ctx.fillText(t.val, p.x, p.y);
     ctx.restore();
   });
+
+  // 조준 커서와 별개로, "내 캐릭터가 여기서 쏘고 있다"는 배경 요소로 화면 하단에 세워둔다.
+  // 표적은 h*0.62 아래로는 내려오지 않으므로 그 아랫줄은 항상 비어 있다.
+  if (charBiathlonImg) {
+    const bh = Math.min(h * 0.34, w * 0.4);
+    const bw = bh * (charBiathlonImg.naturalWidth / charBiathlonImg.naturalHeight);
+    ctx.drawImage(charBiathlonImg, w / 2 - bw / 2, h - bh, bw, bh);
+  }
 
   particles = updateParticles(particles, 1 / 60);
   drawParticles(ctx, particles);
