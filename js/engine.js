@@ -355,6 +355,42 @@ export class SoundKit {
   click() { this.tone(300, 0.05, "square", 0.08); }
   swoosh() { this.tone(1100, 0.07, "sine", 0.1, 0); this.tone(650, 0.1, "sine", 0.08, 0.05); }
   shot() { this.tone(140, 0.07, "square", 0.16, 0); this.tone(90, 0.12, "sawtooth", 0.12, 0.02); }
+  // 노이즈 버퍼(백색소음)에 필터 스윕을 걸어 총소리·파열음처럼 타격감 있는 효과음을 만든다
+  noiseBurst(dur = 0.15, gainVal = 0.22, when = 0, freqStart = 3200, freqEnd = 400, filterType = "lowpass") {
+    const ctx = this.ensure();
+    const t0 = ctx.currentTime + when;
+    const size = Math.max(1, Math.floor(ctx.sampleRate * dur));
+    const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < size; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.setValueAtTime(freqStart, t0);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(50, freqEnd), t0 + dur);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(gainVal, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    gain.connect(this.dest);
+    src.start(t0);
+    src.stop(t0 + dur + 0.02);
+  }
+  // 바이애슬론 전용: 방아쇠를 당기는 순간의 "탕!" 소리
+  gunshot() {
+    this.noiseBurst(0.09, 0.32, 0, 5200, 900, "bandpass");
+    this.tone(90, 0.14, "square", 0.22, 0);
+    this.tone(55, 0.18, "sawtooth", 0.16, 0.01);
+  }
+  // 바이애슬론 전용: 표적을 명중시켜 터뜨리는 순간의 소리
+  targetPop() {
+    this.noiseBurst(0.12, 0.24, 0, 4000, 1200, "highpass");
+    this.tone(1500, 0.05, "square", 0.18, 0);
+    this.tone(950, 0.14, "triangle", 0.16, 0.04);
+  }
   hit(kind = "perfect") {
     if (kind === "perfect") { this.tone(880, 0.12, "sine", 0.2); this.tone(1318, 0.14, "sine", 0.16, 0.05); }
     else if (kind === "good") { this.tone(660, 0.1, "sine", 0.16); }

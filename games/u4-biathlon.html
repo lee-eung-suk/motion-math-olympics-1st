@@ -256,7 +256,7 @@ function fireAt(cx, cy) {
     const d = Math.hypot(cx - p.x, cy - p.y);
     if (d < hitBase * t.scale && d < bestD) { bestD = d; hit = t; }
   }
-  if (!isMuted()) sound.shot();
+  if (!isMuted()) sound.gunshot();
   if (!hit) {
     spawnParticles(particles, cx, cy, { count: 6, colors: ["#9aa0c0"], speed: 120, life: 250, size: 3 });
     if (!isMuted()) sound.fizzle();
@@ -279,7 +279,7 @@ function fireAt(cx, cy) {
     spawnConfetti(confetti, p.x, p.y, 30);
     spawnPopup(popups, p.x, p.y - 20, "명중!", "#ffd166");
     spawnBigPopup(bigPopups, dims.w / 2, dims.h * 0.28, `${count}개!`, "#ffd166");
-    if (!isMuted()) { sound.pop(); if (combo === 3) sound.comboUp(); if (combo >= 5 && combo % 5 === 0) sound.fever(); }
+    if (!isMuted()) { sound.targetPop(); if (combo === 3) sound.comboUp(); if (combo >= 5 && combo % 5 === 0) sound.fever(); }
   } else {
     combo = 0;
     autoDiff.reportWrong();
