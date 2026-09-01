@@ -65,6 +65,7 @@ img{max-width:100%;height:auto;}
   color:var(--text);padding:8px 12px;font-size:clamp(0.82rem, 1vw + 0.5rem, 1rem);
   min-height:var(--tap);min-width:var(--tap);
   display:inline-flex;align-items:center;justify-content:center;gap:4px;
+  text-decoration:none; /* 포털 버튼처럼 <a>로 쓸 때 밑줄이 안 붙게 */
 }
 .icon-btn:active{transform:scale(0.96);}
 
@@ -197,6 +198,9 @@ body.landing .card-thumb.thumb-fallback{background:linear-gradient(160deg,#00000
 #gameCanvas{position:absolute;inset:0;width:100%;height:100%;}
 .hud{
   position:absolute;top:0;left:0;right:0;
+  /* overlay-panel(로딩/대기/카운트다운/결과)이 z-index:20이라 그보다 낮으면 그 화면들 위에서
+     hud 버튼이 안 보이고 클릭도 안 먹는다 — 어떤 화면에서든 항상 눌리도록 그보다 위에 둔다 */
+  z-index:30;
   display:flex;justify-content:space-between;align-items:flex-start;
   padding:clamp(8px, 1.6vh, 14px) clamp(10px, 2.4vw, 20px);pointer-events:none;
   font-weight:700;text-shadow:0 2px 6px #000a;
@@ -207,8 +211,9 @@ body.landing .card-thumb.thumb-fallback{background:linear-gradient(160deg,#00000
 }
 .hud .rec .dot{width:8px;height:8px;border-radius:50%;background:#ff2244;animation:blink 1s infinite;}
 @keyframes blink{50%{opacity:0.2;}}
+.hud-actions{display:flex;gap:8px;}
 .hud .home-btn{
-  pointer-events:all;background:#00000060;border:none;color:#fff;
+  pointer-events:all;background:#00000060;border:none;color:#fff;text-decoration:none;
   border-radius:14px;padding:8px 12px;font-size:clamp(0.95rem, 1vw + 0.6rem, 1.1rem);
   min-height:var(--tap);min-width:var(--tap);
   display:inline-flex;align-items:center;justify-content:center;
@@ -283,6 +288,9 @@ body.landing .help-modal{background:#fffdf7ee;border-color:#ffd166;}
   border:5px solid currentColor;transform:translate(-50%,-50%) scale(.4);opacity:.85;
   animation:countRing .6s ease-out both;pointer-events:none;
 }
+/* 카운트다운 중에만 등장하는 우리반 캐릭터 — 메인 게임 화면에서는 항상 숨겨져 있다가
+   시작 전 이 순간과, 정답을 맞혔을 때만 잠깐 보이는 것으로 등장 규칙을 통일했다 */
+.countdown-char{max-height:clamp(70px, 16vmin, 130px);width:auto;display:block;filter:drop-shadow(0 6px 10px #00000040);}
 @keyframes countPop{
   0%{transform:scale(.2) rotate(-14deg);opacity:0;}
   55%{transform:scale(1.28) rotate(7deg);opacity:1;}
@@ -319,11 +327,6 @@ body.landing .help-modal{background:#fffdf7ee;border-color:#ffd166;}
 .stat-box .num{font-size:clamp(1.3rem, 1.6vw + 0.8rem, 1.8rem);font-weight:800;color:var(--accent);}
 .stat-box .label{font-size:clamp(0.7rem, 0.6vw + 0.5rem, 0.8rem);color:var(--muted);}
 .medal{font-size:clamp(2.8rem, 10vmin, 4rem);}
-/* 결과 화면의 우리반 캐릭터 — 메달 색은 그대로 이모지로 알아보고, 캐릭터는 승리를 함께 즐기는 느낌만 더함 */
-.result-char{max-height:clamp(80px, 18vmin, 140px);width:auto;display:block;margin:0 auto;filter:drop-shadow(0 6px 10px #00000040);}
-@media (max-height:440px){
-  .result-char{display:none;} /* 화면이 낮을 때는 통계·버튼이 잘리지 않도록 캐릭터를 생략 */
-}
 .action-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;}
 video.preview{max-width:min(280px, 70vw);width:100%;border-radius:16px;border:2px solid #ffffff30;}
 

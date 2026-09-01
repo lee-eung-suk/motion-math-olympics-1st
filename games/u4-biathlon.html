@@ -14,7 +14,10 @@
 
   <div class="hud">
     <div class="rec" id="recIndicator" style="display:none"><span class="dot"></span>REC</div>
-    <button class="home-btn" id="homeBtn">🏠</button>
+    <div class="hud-actions">
+      <button class="home-btn" id="homeBtn">🏠</button>
+      <a class="home-btn" id="portalBtn" href="https://motion-math-olympics-portal.vercel.app" title="포털로 돌아가기">🌐</a>
+    </div>
   </div>
 
   <div class="overlay-panel" id="loadingPanel">
@@ -33,13 +36,13 @@
   </div>
 
   <div class="overlay-panel" id="countdownPanel" style="display:none">
+    <img class="countdown-char" src="../assets/char_u4_biathlon.png" alt="">
     <div class="countdown-num" id="countNum">3</div>
   </div>
 
   <div class="overlay-panel" id="resultPanel" style="display:none">
     <h2 id="resultTitle">결과</h2>
     <div class="medal" id="resultMedal">🥉</div>
-    <img class="result-char" src="../assets/char_victory.png" alt="">
     <div class="result-stats">
       <div class="stat-box"><div class="num" id="statCount">0개</div><div class="label">기록</div></div>
       <div class="stat-box"><div class="num" id="statBest">0개</div><div class="label">최고 기록</div></div>
@@ -89,6 +92,7 @@ const isMuted = () => localStorage.getItem("smo_muted") === "1";
 
 document.getElementById("homeBtn").addEventListener("click", () => { bgm.stop(); location.href = "../index.html"; });
 document.getElementById("homeBtn2").addEventListener("click", () => { bgm.stop(); location.href = "../index.html"; });
+document.getElementById("portalBtn").addEventListener("click", () => { bgm.stop(); });
 
 function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
 
@@ -166,7 +170,7 @@ let state = "loading";
 const holdFill = document.getElementById("holdFill");
 const startGate = new StartGate(mode, holdFill);
 
-let autoDiff, count, combo, maxCombo, playEndAt, question, targets, resolving, boostUntil = 0;
+let autoDiff, count, combo, maxCombo, playEndAt, question, targets, resolving, boostUntil = 0, charFlashUntil = 0;
 let particles = [], popups = [], bigPopups = [], snow = [], confetti = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
@@ -252,7 +256,6 @@ function fireAt(cx, cy) {
     const d = Math.hypot(cx - p.x, cy - p.y);
     if (d < hitBase * t.scale && d < bestD) { bestD = d; hit = t; }
   }
-  shake.trigger(hit && hit.correct ? 7 : 3, 150);
   if (!isMuted()) sound.shot();
   if (!hit) {
     spawnParticles(particles, cx, cy, { count: 6, colors: ["#9aa0c0"], speed: 120, life: 250, size: 3 });
@@ -268,6 +271,10 @@ function fireAt(cx, cy) {
     autoDiff.reportCorrect();
     autoRec.trigger();
     boostUntil = performance.now() + BOOST_MS;
+    charFlashUntil = performance.now() + 500; // 정답을 맞힌 순간에만 캐릭터가 잠깐 등장
+    // 화면 흔들림은 정답을 맞혔을 때만 — 조준이 목표 부근을 스칠 때마다(빗맞아도) 계속
+    // 떨리던 것이 "화면이 덜덜거린다"는 버그 리포트의 원인이었다
+    shake.trigger(7, 150);
     spawnParticles(particles, p.x, p.y, { count: 20, colors: ["#ff8c42", "#ffd166", "#fff"], speed: 300, life: 460 });
     spawnConfetti(confetti, p.x, p.y, 30);
     spawnPopup(popups, p.x, p.y - 20, "명중!", "#ffd166");
@@ -494,12 +501,17 @@ function stepGame(tsMs) {
     ctx.restore();
   });
 
-  // 조준 커서와 별개로, "내 캐릭터가 여기서 쏘고 있다"는 배경 요소로 화면 하단에 세워둔다.
-  // 표적은 h*0.62 아래로는 내려오지 않으므로 그 아랫줄은 항상 비어 있다.
-  if (charBiathlonImg) {
+  // 캐릭터는 평소엔 숨겨서 1인칭 조준 느낌을 살리고, 정답을 맞힌 순간에만 잠깐 등장시킨다
+  if (charBiathlonImg && performance.now() < charFlashUntil) {
+    const now2 = performance.now();
+    const t = 1 - (charFlashUntil - now2) / 500;
+    const alpha = t < 0.2 ? t / 0.2 : Math.max(0, 1 - (t - 0.6) / 0.4);
     const bh = Math.min(h * 0.34, w * 0.4);
     const bw = bh * (charBiathlonImg.naturalWidth / charBiathlonImg.naturalHeight);
+    ctx.save();
+    ctx.globalAlpha = alpha;
     ctx.drawImage(charBiathlonImg, w / 2 - bw / 2, h - bh, bw, bh);
+    ctx.restore();
   }
 
   particles = updateParticles(particles, 1 / 60);

@@ -14,7 +14,10 @@
 
   <div class="hud">
     <div class="rec" id="recIndicator" style="display:none"><span class="dot"></span>REC</div>
-    <button class="home-btn" id="homeBtn">🏠</button>
+    <div class="hud-actions">
+      <button class="home-btn" id="homeBtn">🏠</button>
+      <a class="home-btn" id="portalBtn" href="https://motion-math-olympics-portal.vercel.app" title="포털로 돌아가기">🌐</a>
+    </div>
   </div>
 
   <div class="overlay-panel" id="loadingPanel">
@@ -33,13 +36,13 @@
   </div>
 
   <div class="overlay-panel" id="countdownPanel" style="display:none">
+    <img class="countdown-char" src="../assets/char_u5_skijump.png" alt="">
     <div class="countdown-num" id="countNum">3</div>
   </div>
 
   <div class="overlay-panel" id="resultPanel" style="display:none">
     <h2 id="resultTitle">결과</h2>
     <div class="medal" id="resultMedal">🥉</div>
-    <img class="result-char" src="../assets/char_victory.png" alt="">
     <div class="result-stats">
       <div class="stat-box"><div class="num" id="statCount">0개</div><div class="label">기록</div></div>
       <div class="stat-box"><div class="num" id="statBest">0개</div><div class="label">최고 기록</div></div>
@@ -90,6 +93,7 @@ const isMuted = () => localStorage.getItem("smo_muted") === "1";
 
 document.getElementById("homeBtn").addEventListener("click", () => { bgm.stop(); location.href = "../index.html"; });
 document.getElementById("homeBtn2").addEventListener("click", () => { bgm.stop(); location.href = "../index.html"; });
+document.getElementById("portalBtn").addEventListener("click", () => { bgm.stop(); });
 
 function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
 const BLANK_IDX = 3;
@@ -173,7 +177,7 @@ let state = "loading";
 const holdFill = document.getElementById("holdFill");
 const startGate = new StartGate(mode, holdFill);
 
-let autoDiff, count, combo, maxCombo, playEndAt;
+let autoDiff, count, combo, maxCombo, playEndAt, charFlashUntil = 0;
 let phase = "run"; // "run" | "takeoff" (비행 중일 땐 flightPhase로 별도 판정)
 let pendingTakeoff = false; // 게이지가 찬 순간부터 takeoff로 실제 전환되기 전까지의 짧은 대기(연출용 350ms) 구간
 let runNeeded = 3, runCorrect = 0, question, cardLeft, cardRight, resolving = false;
@@ -425,6 +429,7 @@ function answerTapped(card) {
     spawnBigPopup(bigPopups, dims.w / 2, dims.h * 0.3, "쌩~!", "#06d6a0");
     spawnConfetti(confetti, dims.w / 2, dims.h * 0.5, 24);
     shake.trigger(3, 90);
+    charFlashUntil = performance.now() + 500; // 정답을 맞힌 순간에만 캐릭터가 잠깐 등장
     if (!isMuted()) { sound.correct(); if (combo === 3) sound.comboUp(); }
     if (runCorrect >= runNeeded) {
       // 게이지가 찬 그 순간부터 실제로 도약 화면이 뜨기까지 350ms 텀이 있는데, 이 사이에 60초
@@ -761,6 +766,19 @@ function stepRunPhase(ctx, w, h, cursors) {
     spawnParticles(particles, w / 2 + (Math.random() < 0.5 ? -1 : 1) * m.spread * 1.6, m.baseY - m.len * 0.3, {
       count: 1, colors: ["#ffffff", "#dff1fb"], speed: 170, life: 420, size: 3,
     });
+  }
+
+  // 정답을 맞힌 순간에만 옆에서 캐릭터가 잠깐 등장(1인칭 시야 중앙은 가리지 않는다)
+  if (charSkijumpImg && performance.now() < charFlashUntil) {
+    const now2 = performance.now();
+    const t = 1 - (charFlashUntil - now2) / 500;
+    const alpha = t < 0.2 ? t / 0.2 : Math.max(0, 1 - (t - 0.6) / 0.4);
+    const ch = h * 0.2;
+    const cw = ch * (charSkijumpImg.naturalWidth / charSkijumpImg.naturalHeight);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(charSkijumpImg, w * 0.88 - cw / 2, h * 0.5 - ch, cw, ch);
+    ctx.restore();
   }
 }
 
