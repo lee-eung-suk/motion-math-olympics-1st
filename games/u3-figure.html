@@ -139,6 +139,7 @@ const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, combo, maxCombo, playEndAt, cfg;
 let targetShape, tiles = [], lastHitAt = 0, targetSwitchAt = 0;
+let targetStreak = 0, targetStreakGoal = 0; // 같은 모양을 3~4개 모으면 목표 모양을 바꾼다
 let missFlashUntil = 0;
 let trickStart = -9999, nextAutoTrickAt = 0; // 피겨 스케이터의 회전/점프 연기 타이밍
 const TRICK_DUR = 650;
@@ -244,8 +245,12 @@ function makeTile(forceKey) {
 function targetCountFor() { return Math.max(2, Math.ceil(tiles.length * 0.55)); }
 
 function pickTargetShape() {
-  targetShape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+  // 직전과 같은 모양이 연달아 나오지 않도록 후보에서 제외한다
+  const candidates = targetShape ? SHAPES.filter((s) => s.key !== targetShape.key) : SHAPES;
+  targetShape = candidates[Math.floor(Math.random() * candidates.length)];
   targetSwitchAt = performance.now() + cfg.targetEvery;
+  targetStreak = 0;
+  targetStreakGoal = 3 + Math.floor(Math.random() * 2); // 3개 또는 4개
   const want = targetCountFor();
   const nonTargetIdx = [];
   let have = 0;
@@ -343,6 +348,8 @@ function collectTile(tile, idx) {
     spawnBigPopup(bigPopups, dims.w / 2, dims.h * 0.3, `🏅 ${score}점!`, "#ffd166");
     if (!isMuted()) sound.fever();
   }
+  targetStreak++;
+  if (targetStreak >= targetStreakGoal) pickTargetShape(); // 같은 모양을 3~4개 모으면 곧바로 목표를 바꾼다
   // 방금 수집한 자리는 다시 무작위로 태어나던 것을, 목표 모양 개수가 기준보다 부족해지면
   // 새로 태어나는 조각도 목표 모양으로 우선 채워 화면의 목표 모양 밀도가 유지되게 한다
   setTimeout(() => {

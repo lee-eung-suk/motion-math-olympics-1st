@@ -105,22 +105,45 @@ function speedForLevel(level) {
   return 0.47;
 }
 
+// 미션 종류(더 큰 수/더 작은 수/홀수/짝수)가 골고루 나오도록 4개를 섞은 주머니에서
+// 하나씩 뽑아 쓰고, 주머니가 비면 다시 섞는다(직전 미션과 바로 겹치지 않게 보정).
+const MISSION_TYPES = ["bigger", "smaller", "odd", "even"];
+let missionBag = [];
+let lastMissionType = null;
+function nextMissionType() {
+  if (missionBag.length === 0) {
+    missionBag = [...MISSION_TYPES];
+    for (let i = missionBag.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [missionBag[i], missionBag[j]] = [missionBag[j], missionBag[i]];
+    }
+    if (missionBag[0] === lastMissionType) {
+      const swapIdx = 1 + Math.floor(Math.random() * (missionBag.length - 1));
+      [missionBag[0], missionBag[swapIdx]] = [missionBag[swapIdx], missionBag[0]];
+    }
+  }
+  lastMissionType = missionBag.shift();
+  return lastMissionType;
+}
+
 function genGate(level) {
-  const missionType = Math.random() < (level === 1 ? 0.75 : 0.5) ? "bigger" : "even";
+  const missionType = nextMissionType();
   let leftVal, rightVal, correctSide;
-  if (missionType === "bigger") {
+  if (missionType === "bigger" || missionType === "smaller") {
     const minDiff = level === 1 ? 20 : level === 2 ? 8 : 2;
     do {
       leftVal = randInt(60, 99);
       rightVal = randInt(60, 99);
     } while (Math.abs(leftVal - rightVal) < minDiff);
-    correctSide = leftVal > rightVal ? "left" : "right";
+    const leftWins = missionType === "bigger" ? leftVal > rightVal : leftVal < rightVal;
+    correctSide = leftWins ? "left" : "right";
   } else {
     const a = randInt(60, 99);
     let b;
     do { b = randInt(60, 99); } while (b % 2 === a % 2);
     if (Math.random() < 0.5) { leftVal = a; rightVal = b; } else { leftVal = b; rightVal = a; }
-    correctSide = leftVal % 2 === 0 ? "left" : "right";
+    const wantEven = missionType === "even";
+    correctSide = (leftVal % 2 === 0) === wantEven ? "left" : "right";
   }
   return { leftVal, rightVal, correctSide, missionType, yFrac: -0.12, judged: false };
 }
@@ -340,7 +363,7 @@ function drawArHelmet(ctx, faceResult) {
   const lPt = toMirroredCanvas(lEye, w, h, video);
   const eyeMidX = (rPt.x + lPt.x) / 2, eyeMidY = (rPt.y + lPt.y) / 2;
   const eyeDist = Math.hypot(lPt.x - rPt.x, lPt.y - rPt.y);
-  const rad = Math.atan2(lPt.y - rPt.y, lPt.x - rPt.x); // 눈높이 기울기 = 롤 각도
+  const rad = Math.atan2(rPt.y - lPt.y, rPt.x - lPt.x); // 왼쪽→오른쪽 눈 벡터 기준 롤 각도(반대로 재면 모자가 180도 뒤집혀 보인다)
 
   ctx.save();
   ctx.translate(eyeMidX, eyeMidY);
@@ -670,7 +693,10 @@ function stepGame(tsMs, leanSide, dt) {
 
   drawVignette(ctx, w, h, 0.18);
   drawHudBanner(ctx, dims, [
-    { text: gate.missionType === "bigger" ? "👉 더 큰 수 코스로 달리세요!" : "👉 짝수 코스로 달리세요!", size: 26, weight: "900", color: "#e8590c" },
+    { text: gate.missionType === "bigger" ? "👉 더 큰 수 코스로 달리세요!"
+        : gate.missionType === "smaller" ? "👉 더 작은 수 코스로 달리세요!"
+        : gate.missionType === "odd" ? "👉 홀수 코스로 달리세요!"
+        : "👉 짝수 코스로 달리세요!", size: 26, weight: "900", color: "#e8590c" },
     { text: `🔥${combo}   기록 ${count}개   ⏱ ${Math.ceil(remain / 1000)}초`, size: 18, color: "#1d2b4d" },
     { text: mode === "motion" ? "🙂 고개를 살짝 좌/우로 기울여요" : "👆 화면 왼쪽/오른쪽을 눌러요", size: 14, weight: "normal", color: "#5c6b8a" },
   ]);
