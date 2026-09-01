@@ -768,16 +768,16 @@ function stepRunPhase(ctx, w, h, cursors) {
     });
   }
 
-  // 정답을 맞힌 순간에만 옆에서 캐릭터가 잠깐 등장(1인칭 시야 중앙은 가리지 않는다)
+  // 정답을 맞힌 순간에만 화면 가운데에 크게 잠깐 등장
   if (charSkijumpImg && performance.now() < charFlashUntil) {
     const now2 = performance.now();
     const t = 1 - (charFlashUntil - now2) / 500;
     const alpha = t < 0.2 ? t / 0.2 : Math.max(0, 1 - (t - 0.6) / 0.4);
-    const ch = h * 0.2;
+    const ch = Math.min(h * 0.5, w * 0.5);
     const cw = ch * (charSkijumpImg.naturalWidth / charSkijumpImg.naturalHeight);
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.drawImage(charSkijumpImg, w * 0.88 - cw / 2, h * 0.5 - ch, cw, ch);
+    ctx.drawImage(charSkijumpImg, w / 2 - cw / 2, h / 2 - ch / 2, cw, ch);
     ctx.restore();
   }
 }

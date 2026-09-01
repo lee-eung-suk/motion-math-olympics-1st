@@ -139,7 +139,9 @@ const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, combo, maxCombo, playEndAt, cfg;
 let targetShape, tiles = [], lastHitAt = 0, targetSwitchAt = 0;
-let charFlashUntil = 0, missFlashUntil = 0;
+let missFlashUntil = 0;
+let trickStart = -9999, nextAutoTrickAt = 0; // 피겨 스케이터의 회전/점프 연기 타이밍
+const TRICK_DUR = 650;
 let particles = [], popups = [], bigPopups = [], confetti = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
@@ -187,15 +189,20 @@ function drawRibbon(ctx, pts, color, maxWidth) {
   ctx.restore();
 }
 
-// 피겨 스케이터 실루엣(아라베스크 자세) — 정답을 맞힌 순간에만 잠깐 등장한다.
+// 피겨 스케이터 실루엣(아라베스크 자세) — 게임 내내 화면에 있으며 회전/점프 연기를 계속 펼친다.
 // 예전엔 우리반 캐릭터 이미지로 그리며 손 건네는 모션+제자리 회전 연출을 넣었는데
-// 둘 다 어색하다는 피드백을 받아, 원래 쓰던 손그림 스틱피겨로 되돌리고 애니메이션 없이
-// 등장/사라짐(페이드)만 남겼다.
-function drawFigureSkater(ctx, x, y, size, lean) {
+// 둘 다 어색하다는 피드백을 받아, 원래 쓰던 손그림 스틱피겨로 되돌렸다. spin/jumpT로
+// 점프-회전(악셀) 연기를 표현한다: 좌우 반전 트릭으로 회전을, 포물선 이동으로 점프를 흉내낸다.
+function drawFigureSkater(ctx, x, y, size, lean, spin, jumpT) {
   const s = size / 100;
+  const jump = jumpT ? Math.sin(Math.min(1, jumpT) * Math.PI) : 0;
   ctx.save();
-  ctx.translate(x, y);
+  ctx.translate(x, y - jump * size * 0.9);
   ctx.rotate(lean);
+  if (spin) {
+    const c = Math.cos(spin);
+    ctx.scale(c >= 0 ? Math.max(0.25, c) : -Math.max(0.25, -c), 1);
+  }
   ctx.globalAlpha = 0.94;
   ctx.lineCap = "round"; ctx.lineJoin = "round";
   ctx.strokeStyle = "#1d2b4d"; ctx.fillStyle = "#1d2b4d";
@@ -297,7 +304,8 @@ function beginPlay() {
   autoDiff = new AutoDifficulty(AutoDifficulty.startLevelFromHighScore(prev));
   count = 0; combo = 0; maxCombo = 0;
   particles = []; popups = []; bigPopups = [];
-  charFlashUntil = 0; missFlashUntil = 0; lastHitAt = 0;
+  missFlashUntil = 0; lastHitAt = 0;
+  trickStart = -9999; nextAutoTrickAt = performance.now() + 2000 + Math.random() * 1500;
   playEndAt = performance.now() + 60000;
   resetBoard();
 
@@ -327,7 +335,8 @@ function collectTile(tile, idx) {
     spawnConfetti(confetti, tile.x, tile.y, 22);
   spawnPopup(popups, tile.x, tile.y - 26, "반짝!", "#bfe9ff");
   shake.trigger(3, 90);
-  charFlashUntil = performance.now() + 500; // 정답을 맞힌 순간에만 캐릭터가 잠깐 등장
+  trickStart = performance.now(); // 정답을 맞힐 때마다 점프-회전(악셀) 연기를 보여준다
+  nextAutoTrickAt = trickStart + TRICK_DUR + 1800 + Math.random() * 1200;
   if (!isMuted()) { sound.correct(); if (combo === 3) sound.comboUp(); }
   if (count > 0 && count % SPIN_EVERY === 0) {
     const score = (5.6 + Math.random() * 0.4 + Math.min(combo, 5) * 0.1).toFixed(1);
@@ -461,16 +470,22 @@ function loop(tsMs) {
     else fadeRibbon(i);
     drawRibbon(ctx, ribbons[i], RIBBON_COLORS[i], fluidPx(dims, 16, { min: 10, max: 22 }));
   }
-  // 피겨 스케이터는 평소엔 숨어 있다가 정답을 맞힌 순간에만 페이드 인/아웃으로 잠깐 등장한다
-  if (state === "playing" && performance.now() < charFlashUntil) {
+  // 피겨 스케이터는 게임 내내 화면에 있으며 주기적으로, 그리고 정답을 맞힐 때마다 점프-회전 연기를 펼친다
+  if (state === "playing") {
     const now = performance.now();
-    const t = 1 - (charFlashUntil - now) / 500;
-    const alpha = t < 0.2 ? t / 0.2 : Math.max(0, 1 - (t - 0.6) / 0.4);
+    if (now >= nextAutoTrickAt) {
+      trickStart = now;
+      nextAutoTrickAt = now + TRICK_DUR + 1800 + Math.random() * 1200;
+    }
+    const tp = (now - trickStart) / TRICK_DUR;
+    const active = tp >= 0 && tp < 1;
+    const spin = active ? tp * Math.PI * 2 : 0;
+    const jumpT = active ? tp : 0;
     const lead = cursors[0];
     const lean = lead ? Math.max(-0.35, Math.min(0.35, (lead.x - w / 2) / w * 0.9)) : 0;
+    const bob = active ? 0 : Math.sin(now / 260) * 0.02 * Math.min(h * 0.20, w * 0.24);
     ctx.save();
-    ctx.globalAlpha = alpha;
-    drawFigureSkater(ctx, w / 2, h * 0.97, Math.min(h * 0.20, w * 0.24), lean);
+    drawFigureSkater(ctx, w / 2, h * 0.97 + bob, Math.min(h * 0.20, w * 0.24), lean, spin, jumpT);
     ctx.restore();
   }
   ctx.restore();

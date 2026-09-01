@@ -323,44 +323,45 @@ function currentLeanSide(angleDeg) {
   return pointerInput.points[0].x < dims.w / 2 ? "left" : "right";
 }
 
-// AR 헬멧: cap.png가 있으면 그 이미지를, 없으면 벡터로 그린 스피드스케이팅 헬멧을 이마 위치에 회전시켜 얹는다
-// 회전은 눈 좌우 랜드마크가 아니라 "턱→이마" 방향 벡터로 계산한다(좌/우 랜드마크 인덱스를 헷갈릴 여지가 없어
-// 항상 정방향 기준이 되고, 미러링된 캔버스 좌표에서 그대로 써도 뒤집히지 않는다).
+// AR 헬멧: 이마·볼 랜드마크 대신 두 눈(33=오른쪽, 263=왼쪽) 랜드마크에 맞춘다.
+// 예전엔 이마-턱-볼로 크기/기준점을 잡았는데, 그러면 cap.png의 고글이 실제 눈 위치와
+// 안 맞기 쉬웠다(사람마다 이마~눈 비율이 달라서). 대신 cap.png를 실측해서 "고글 두 렌즈
+// 중심 사이 거리 = 이미지 폭의 29.2%, 렌즈 중심 높이 = 이미지 세로의 56.4%"를 구해두고,
+// 실제 눈 사이 거리(가장 안정적으로 트래킹되는 값)에 맞춰 이 두 렌즈가 정확히 눈 위에
+// 오도록 이미지 크기·오프셋을 역산한다. 회전도 눈높이 기울기를 그대로 쓴다.
+const CAP_LENS_GAP_FRAC = 0.292, CAP_LENS_Y_FRAC = 0.564;
 function drawArHelmet(ctx, faceResult) {
   if (!faceResult || !faceResult.faceLandmarks || !faceResult.faceLandmarks.length) return;
   const lm = faceResult.faceLandmarks[0];
-  const top = lm[10], chin = lm[152], leftCheek = lm[234], rightCheek = lm[454];
-  if (!top || !chin || !leftCheek || !rightCheek) return;
+  const rEye = lm[33], lEye = lm[263];
+  if (!rEye || !lEye) return;
   const { w, h } = dims;
-  const topPt = toMirroredCanvas(top, w, h, video);
-  const chinPt = toMirroredCanvas(chin, w, h, video);
-  const leftPt = toMirroredCanvas(leftCheek, w, h, video);
-  const rightPt = toMirroredCanvas(rightCheek, w, h, video);
-  const faceWidth = Math.hypot(rightPt.x - leftPt.x, rightPt.y - leftPt.y);
-  const upX = topPt.x - chinPt.x, upY = topPt.y - chinPt.y;
-  const rad = Math.atan2(upX, -upY); // "위쪽" 벡터를 캔버스 기준 회전각으로 변환
+  const rPt = toMirroredCanvas(rEye, w, h, video);
+  const lPt = toMirroredCanvas(lEye, w, h, video);
+  const eyeMidX = (rPt.x + lPt.x) / 2, eyeMidY = (rPt.y + lPt.y) / 2;
+  const eyeDist = Math.hypot(lPt.x - rPt.x, lPt.y - rPt.y);
+  const rad = Math.atan2(lPt.y - rPt.y, lPt.x - rPt.x); // 눈높이 기울기 = 롤 각도
 
   ctx.save();
-  ctx.translate(topPt.x, topPt.y);
+  ctx.translate(eyeMidX, eyeMidY);
   ctx.rotate(rad);
-  const size = faceWidth * 1.5;
   if (helmetImg) {
-    // 헤어라인(topPt) 기준 위로는 살짝(돔)만, 아래로는 이마~눈썹까지 덮이도록
-    // 이미지 대부분이 헤어라인 아래로 내려오게 오프셋을 잡는다(과거엔 반대로 되어 있어 모자가 머리 위에 떠 보였음)
+    const size = eyeDist / CAP_LENS_GAP_FRAC;
     const hw = size, hh = size * (helmetImg.naturalHeight / helmetImg.naturalWidth);
-    ctx.drawImage(helmetImg, -hw / 2, -hh * 0.28, hw, hh);
+    ctx.drawImage(helmetImg, -hw / 2, -hh * CAP_LENS_Y_FRAC, hw, hh);
   } else {
+    const size = eyeDist * 2.8; // cheek-to-cheek 대신 eyeDist 기준이라 대략적인 환산 배율
     ctx.beginPath();
-    ctx.ellipse(0, -size * 0.16, size * 0.52, size * 0.42, 0, Math.PI, 0);
+    ctx.ellipse(0, -size * 0.42, size * 0.52, size * 0.42, 0, Math.PI, 0);
     ctx.fillStyle = "#ef476f";
     ctx.fill();
     ctx.lineWidth = size * 0.05; ctx.strokeStyle = "#fff"; ctx.stroke();
     ctx.beginPath();
-    ctx.rect(-size * 0.5, -size * 0.2, size, size * 0.1);
+    ctx.rect(-size * 0.5, -size * 0.46, size, size * 0.1);
     ctx.fillStyle = "#4cc9f0";
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(0, -size * 0.56, size * 0.1, 0, Math.PI * 2);
+    ctx.arc(0, -size * 0.82, size * 0.1, 0, Math.PI * 2);
     ctx.fillStyle = "#fff";
     ctx.fill();
   }
